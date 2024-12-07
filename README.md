@@ -1,125 +1,105 @@
-# BlackUtility: Advanced Linux Security Transformation Toolkit
+# BlackArch Conversion Toolkit
 
-## 🚀 Overview
+## Overview
 
-BlackUtility is an advanced, interactive Linux security transformation toolkit designed to simplify and streamline the process of converting your Linux system into a robust security-focused environment. Built with flexibility, user experience, and comprehensive system management in mind, BlackUtility provides a powerful yet intuitive interface for security professionals and enthusiasts.
+The BlackArch Conversion Toolkit is a comprehensive Python utility designed to seamlessly convert an existing Arch Linux system into a security-focused BlackArch Linux environment. This tool provides an automated, configurable method to integrate BlackArch's extensive collection of cybersecurity and penetration testing tools.
 
-## ✨ Key Features
+## Author Information
+- **Name:** b0urn3
+- **GitHub:** [github.com/q4n0](https://github.com/q4n0)
+- **Contact:** q4n0@proton.me
 
-### 1. Intelligent System Compatibility
-- Comprehensive pre-flight system checks
-- Verifies system readiness before conversion
-- Provides detailed compatibility reports
+## Features
 
-### 2. Interactive Tool Ecosystem
-- Dynamic tool recommendation engine
-- Customizable tool category selection
-- Interactive installation process with detailed insights
+- 🔍 System Compatibility Checking
+- 💾 Automatic System Backup
+- 🛠 Intelligent Tool Recommendation
+- 🔒 Security-Focused Tool Installation
+- 🖥 Interactive and Non-Interactive Modes
+- 📊 Detailed Logging
 
-### 3. Enhanced User Experience
-- **Colorful Console Output**: Visually engaging terminal interface
-- **Detailed Error Reporting**: Clear, actionable error messages
-- **Flexible Configuration**: Multiple runtime options
+## Prerequisites
 
-### 4. Robust System Management
-- Full system backup before modifications
-- Granular optimization levels
-- Secure repository management
-
-## 🛠 Installation
-
-### Prerequisites
-- Python 3.8+
-- `sudo` privileges
-- Arch Linux base system
+- Arch Linux system
+- Root/sudo access
 - Active internet connection
+- Minimum 20GB free disk space
+- Python 3.8+
 
-### Quick Installation
+## Installation
+
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/blackutility.git
+git clone https://github.com/yourusername/blackarch-conversion-toolkit.git
 
 # Change directory
-cd blackutility
+cd blackarch-conversion-toolkit
 
-# Install required dependencies
-pip install -r requirements.txt
-
-# Make the script executable
-chmod +x blackutility.py
+# Ensure executable permissions
+chmod +x blackarch_converter.py
 ```
 
-## 🖥 Usage
+## Usage
 
-### Basic Execution
+### Basic Usage
 ```bash
-# Run with default settings
-sudo python3 blackutility.py
+sudo python3 blackarch_converter.py
 ```
 
-### Advanced Configuration Options
-
-#### Specify Tool Categories
+### Advanced Options
 ```bash
-# Install tools from specific security domains
-sudo python3 blackutility.py -c network exploitation
-```
+# Specify tool categories
+sudo python3 blackarch_converter.py -c network exploitation
 
-#### Dry Run Mode
-```bash
-# Simulate conversion without making system changes
-sudo python3 blackutility.py --dry-run
-```
+# Set optimization level (0-3)
+sudo python3 blackarch_converter.py -l 2
 
-#### Non-Interactive Installation
-```bash
-# Automated tool installation without prompts
-sudo python3 blackutility.py --non-interactive
-```
+# Dry run (simulation mode)
+sudo python3 blackarch_converter.py --dry-run
 
-## 🎛 Configuration Parameters
+# Non-interactive mode
+sudo python3 blackarch_converter.py --non-interactive
+```
 
 ### Command-Line Arguments
-| Argument | Description | Default | Options |
-|----------|-------------|---------|---------|
-| `-c, --categories` | Specify tool installation categories | `['network', 'exploitation']` | Any BlackArch tool category |
-| `-l, --level` | System optimization intensity | `2` | `0-3` |
-| `--dry-run` | Simulate conversion | `False` | Flag |
-| `--non-interactive` | Disable interactive mode | Interactive | Flag |
+- `-c/--categories`: Select specific tool categories
+- `-l/--level`: Set optimization level (default: 2)
+- `--dry-run`: Simulate conversion without changes
+- `--non-interactive`: Automatic tool installation
 
-### Optimization Levels
-- **Level 0**: Minimal system changes
-- **Level 1**: Basic performance tuning
-- **Level 2**: Balanced optimization (Recommended)
-- **Level 3**: Aggressive performance and security hardening
+## Configuration
 
-## 🔒 Security Considerations
-- Requires careful consideration before execution
-- Designed for experienced users
-- Always backup critical data
-- Understand potential system modifications
+The script uses a `ConversionConfiguration` class with customizable parameters:
+- `output_directory`: Logging destination
+- `backup_directory`: System backup location
+- `repositories`: BlackArch repositories to add
+- `tool_categories`: Categories for tool recommendations
+- `security_level`: Conversion security profile
+- `optimization_level`: System optimization setting
 
-## 📋 Logging
-- Detailed conversion logs stored in `/var/log/blackarch_conversion/`
-- Comprehensive error tracking
-- Timestamped log files for easy reference
+## Logging
 
-## 🤝 Contributing
+Conversion logs are stored in `/var/log/blackarch_conversion/` with timestamped log files for tracking and debugging.
+
+## Safety Recommendations
+
+⚠️ **IMPORTANT**: 
+- Always backup your system before running
+- Understand that this tool makes significant system modifications
+- Recommended for advanced users familiar with Linux
+
+## Contributing
+
 1. Fork the repository
-2. Create your feature branch
+2. Create a feature branch
 3. Commit your changes
 4. Push to the branch
 5. Create a Pull Request
 
-## ⚠️ Disclaimer
-BlackUtility is provided "as-is" without warranties. Users are responsible for understanding and managing system-level changes. Always have a recovery plan and backup important data.
+## License
 
-## 📞 Support
-- Open GitHub Issues for bug reports
-- Community support via GitHub Discussions
-- Professional support: [ q4n0@proton.me ]
+See the LICENSE file for details. 
 
+## Disclaimer
 
----
-
-**Happy Securing! 🛡️**
+This tool is provided "as-is" without warranties. Use at your own risk. Always have a backup and understand the changes being made to your system.
