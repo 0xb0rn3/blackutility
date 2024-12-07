@@ -1,0 +1,9 @@
+tqdm 
+pyyaml 
+requests 
+urwid 
+flask 
+sqlalchemy 
+plotly 
+prompt_toolkit
+websockets
