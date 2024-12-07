@@ -1,175 +1,98 @@
-# BlackArch Toolkit
+# BlackUtility: Advanced BlackArch Linux Tools Management Utility
 
 ## Overview
 
-The BlackArch Toolkit is a comprehensive cybersecurity tool management solution designed specifically for Arch Linux. This powerful utility goes beyond simple package installation, providing an integrated ecosystem for discovering, installing, managing, and monitoring security and penetration testing tools.
-
-## Core Philosophy
-
-The BlackArch Toolkit was created with a fundamental mission: to simplify and streamline the process of acquiring and managing cybersecurity tools. By providing intelligent, flexible, and user-friendly management capabilities, the toolkit empowers security professionals and researchers to quickly set up their working environments.
+BlackUtility is a sophisticated Python-based tool designed to streamline and enhance the management of BlackArch Linux security and penetration testing tools. This utility provides a comprehensive solution for discovering, installing, and maintaining a robust collection of cybersecurity tools.
 
 ## Key Features
 
-### Intelligent Tool Management
-- Dynamic tool discovery from multiple repositories
-- Advanced filtering and selection mechanisms
-- Comprehensive dependency resolution
-- Flexible installation strategies
+### 🚀 Intelligent Tool Management
+- Automated discovery of BlackArch Linux tools
+- Parallel tool installation with dynamic throttling
+- Comprehensive installation tracking and history
 
-### Multi-Modal Interaction
-The BlackArch Toolkit supports multiple interaction modes to suit different user preferences and workflows:
-- Command-line interface for scripting and quick installations
-- Text-based user interface (TUI) for interactive exploration
-- Web dashboard for comprehensive tool management
-- Detailed logging and reporting systems
+### 🔒 Advanced Security Measures
+- Network stability checks before tool installation
+- Integrity verification for installed tools
+- Detailed logging and error handling
 
-## Supported Tool Categories
+### 📊 Robust Tracking and Reporting
+- Persistent state tracking using SQLite database
+- Detailed installation history
+- Configurable tool categories and installation parameters
 
-The toolkit covers a wide range of cybersecurity domains:
-1. Information Gathering
-2. Vulnerability Analysis
-3. Web Application Testing
-4. Exploitation Frameworks
-5. Password Attack Tools
-6. Wireless Network Analysis
-7. Reverse Engineering
-8. Digital Forensics
+## Prerequisites
 
-## System Requirements
-
-### Minimum Requirements
-- Operating System: Arch Linux
-- Python: 3.8+
-- Storage: 20 GB free disk space
-- RAM: 8 GB recommended
-
-### Dependency Installation
-```bash
-pip install \
-    tqdm \
-    pyyaml \
-    requests \
-    urwid \
-    flask \
-    sqlalchemy \
-    plotly \
-    prompt_toolkit \
-    websockets
-```
+- Python 3.8+
+- Arch Linux or BlackArch Linux
+- sudo privileges
 
 ## Installation
 
-### Quick Setup
+1. Clone the repository:
 ```bash
-# Clone the BlackArch Toolkit repository
-git clone https://github.com/q4n0/blackarchtoolkit.git
-cd blackarchtoolkit
+git clone https://github.com/q4n0/blackutility.git
+cd blackutility
+```
 
-# Install system dependencies
-sudo pacman -S python-pip
-
-# Install Python dependencies
+2. Install dependencies:
+```bash
 pip install -r requirements.txt
-
-# Set executable permissions
-chmod +x blackarch_toolkit.py
 ```
 
-## Usage Modes
-
-### Command-Line Installation
+3. Make the script executable:
 ```bash
-# Install all tools
-sudo python3 blackarch_toolkit.py
-
-# Install specific category
-sudo python3 blackarch_toolkit.py -c web-applications
-
-# Resume interrupted installation
-sudo python3 blackarch_toolkit.py -r
+chmod +x blackutility.py
 ```
 
-### Web Dashboard
+## Usage
+
+Run the tool with sudo privileges:
 ```bash
-# Launch web management interface
-sudo python3 blackarch_toolkit.py --dashboard
+sudo python3 blackutility.py
 ```
 
-### Text User Interface
-```bash
-# Start interactive tool manager
-sudo python3 blackarch_toolkit.py --tui
+### Interactive Menu Options
+
+1. **Install All Tools**: Discovers and installs all available BlackArch tools
+2. **Install by Category**: Allows selecting specific tool categories
+3. **View Installation History**: Displays detailed tool installation records
+4. **System Integrity Check**: Performs comprehensive system verification
+5. **Configuration**: Manage and modify utility settings
+
+## Configuration
+
+The utility uses a flexible JSON configuration system with the following default settings:
+
+```json
+{
+    "categories": ["penetration-testing", "vulnerability-assessment"],
+    "max_parallel_downloads": 8,
+    "network_timeout": 45,
+    "retry_attempts": 5,
+    "integrity_check": true,
+    "auto_update": false,
+    "security_level": "standard"
+}
 ```
 
-## Command-Line Options
+You can customize these settings by modifying the `blackutility_config.json` file.
 
-| Option | Arguments | Description |
-|--------|-----------|-------------|
-| `-c`, `--category` | CATEGORY | Specify tool category |
-| `-r`, `--resume` | | Resume previous installation |
-| `--dashboard` | | Launch web management interface |
-| `--tui` | | Start text-based user interface |
-| `--config` | PATH | Use custom configuration file |
+## Logging
+
+BlackUtility generates detailed log files in `~/.cache/blackutility/logs/` for comprehensive tracking and troubleshooting.
 
 ## Security Considerations
 
-The BlackArch Toolkit is designed with security as a top priority:
-- Multi-layer security verification
-- Configurable trust levels
-- Package signature validation
-- Comprehensive audit logging
-- Anonymized usage telemetry
+- Requires sudo privileges for package management
+- Implements multiple network and integrity checks
+- Provides granular logging for audit trails
 
-## Configuration Management
+## Contribution
 
-Configuration is managed through `/etc/blackarch-toolkit/config.yaml`, allowing customization of:
-- Installation behaviors
-- Dashboard settings
-- Security parameters
-- Telemetry preferences
+Contributions are welcome! Please submit pull requests or open issues on the project's GitHub repository.
 
-## Logging and Reporting
 
-### Log Locations
-- Full Installation Log: `/var/log/blackarch_installer_full.log`
-- Tool Inventory: `/var/lib/blackarch_installer/tool_inventory.json`
-- Installation Reports: `/var/log/blackarch_installation_report.json`
+## Disclaimer
 
-## Contributing to the BlackArch Toolkit
-
-### How to Contribute
-- Report issues on GitHub
-- Submit pull requests
-- Contribute tool metadata
-- Improve documentation
-
-### Contribution Guidelines
-1. Follow Python (PEP 8) style guidelines
-2. Write comprehensive test cases
-3. Update documentation
-4. Maintain backwards compatibility
-
-## Legal and Ethical Use Disclaimer
-
-The BlackArch Toolkit is strictly for authorized cybersecurity research, penetration testing, and educational purposes. Users must:
-- Comply with all applicable laws
-- Obtain proper authorization
-- Use tools responsibly and ethically
-
-## Support and Community
-
-- GitHub Issues: Technical problem reporting
-- Email Support: [ q4n0@proton.me ]
-
-## Version History
-
-### Version 2.0.0
-- Introduced web dashboard
-- Added Text User Interface
-- Enhanced tool metadata management
-- Improved dependency resolution
-- Advanced filtering capabilities
-
----
-
-**Empower Your Cybersecurity Workflow with the BlackArch Toolkit! 🛡️**
+This tool is intended for authorized and legal security testing and research. Always ensure you have proper authorization before using security tools.
