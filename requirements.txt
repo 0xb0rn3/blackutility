@@ -1,10 +1,15 @@
-tqdm 
-pandas
-pyyaml 
-requests 
-urwid 
-flask 
-sqlalchemy 
-plotly 
-prompt_toolkit
-websockets
+# BlackUtility Dependencies
+
+# Core Python Libraries
+colorama>=0.4.4
+requests>=2.26.0
+sqlite3  # Included in Python standard library
+
+# Optional: For advanced features
+scikit-learn>=0.24.2
+numpy>=1.21.0
+
+# Development and Testing
+pytest>=6.2.5
+mypy>=0.910
+black>=21.6b0  # Code formatting
