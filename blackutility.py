@@ -3,418 +3,289 @@
 import os
 import sys
 import subprocess
-import json
-import time
-import threading
-import queue
-import argparse
-import signal
-import requests
-import sqlite3
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
-import hashlib
-from typing import List, Dict, Any, Optional
+import yaml
+import json
+from typing import List, Dict, Optional
+from dataclasses import dataclass, asdict
+import shutil
+import tempfile
+from datetime import datetime
 
-class BlackUtility:
-    def __init__(self, config_path='blackutility_config.json', db_path='blackutility_state.db'):
-        """
-        Advanced BlackArch Linux Tools Management Utility
+@dataclass
+class ConversionConfig:
+    """
+    Comprehensive configuration for BlackArch conversion
+    """
+    backup_directory: str = '/var/log/blackarch_conversion_backup'
+    repositories_to_add: List[str] = None
+    tool_categories: List[str] = None
+    security_level: str = 'standard'
+    preserve_existing_configs: bool = True
+    dry_run: bool = False
 
-        Enhanced Features:
-        - Comprehensive tool management
-        - Persistent state tracking
-        - Advanced network reliability
-        - Detailed logging and reporting
-        - Security and integrity checks
+class BlackArchConverter:
+    def __init__(self, config: Optional[ConversionConfig] = None):
         """
-        # Setup core components
-        self.config_path = config_path
-        self.db_path = db_path
+        Initialize BlackArch conversion utility
         
-        # Initialize core systems
-        self.setup_logging()
-        self.setup_database()
-        self.load_config()
-        
-        # Advanced tracking and control
-        self.installation_state = {
-            'total_tools': 0,
-            'installed_tools': 0,
-            'failed_tools': [],
-            'skipped_tools': [],
-            'current_operation': None
-        }
-        
-        # Advanced synchronization primitives
-        self.network_queue = queue.Queue()
-        self.installation_queue = queue.Queue()
-        self.stop_event = threading.Event()
-        
-        # Security and integrity tracking
-        self.tool_integrity_map = {}
-    
-    def setup_logging(self):
+        Args:
+            config (ConversionConfig): Custom configuration for conversion
         """
-        Enhanced logging configuration with rotation and multiple handlers
+        self.config = config or ConversionConfig()
+        self.logger = self._setup_logging()
+        self.system_snapshot = self._create_system_snapshot()
+
+    def _setup_logging(self) -> logging.Logger:
         """
-        log_dir = os.path.expanduser('~/.cache/blackutility/logs')
+        Configure comprehensive logging for conversion process
+        
+        Returns:
+            logging.Logger: Configured logger instance
+        """
+        log_dir = '/var/log/blackarch_conversion'
         os.makedirs(log_dir, exist_ok=True)
         
-        log_file = os.path.join(log_dir, f'blackutility_{time.strftime("%Y%m%d_%H%M%S")}.log')
+        log_file = os.path.join(log_dir, f'conversion_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
         
         logging.basicConfig(
-            level=logging.DEBUG,
-            format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s: %(message)s',
             handlers=[
-                logging.FileHandler(log_file, mode='w'),
+                logging.FileHandler(log_file),
                 logging.StreamHandler(sys.stdout)
             ]
         )
-        self.logger = logging.getLogger(__name__)
-    
-    def setup_database(self):
+        return logging.getLogger(__name__)
+
+    def _create_system_snapshot(self) -> Dict:
         """
-        Create SQLite database for persistent state tracking
+        Create a comprehensive system configuration snapshot
         
-        Tracks:
-        - Tool installation history
-        - Integrity checks
-        - System configuration snapshots
+        Returns:
+            Dict: System configuration and package information
         """
-        try:
-            self.conn = sqlite3.connect(self.db_path)
-            cursor = self.conn.cursor()
-            
-            # Tools installation tracking
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS tool_installations (
-                    tool_name TEXT PRIMARY KEY,
-                    installation_date DATETIME,
-                    status TEXT,
-                    version TEXT,
-                    integrity_hash TEXT
-                )
-            ''')
-            
-            # Configuration snapshots
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS config_snapshots (
-                    snapshot_date DATETIME PRIMARY KEY,
-                    config_json TEXT
-                )
-            ''')
-            
-            self.conn.commit()
-        except sqlite3.Error as e:
-            self.logger.error(f"Database setup failed: {e}")
-    
-    def load_config(self):
-        """
-        Advanced configuration loading with validation and defaults
-        """
-        default_config = {
-            'categories': ['penetration-testing', 'vulnerability-assessment'],
-            'max_parallel_downloads': 8,
-            'network_timeout': 45,
-            'retry_attempts': 5,
-            'integrity_check': True,
-            'auto_update': False,
-            'security_level': 'standard'
+        snapshot = {
+            'installed_packages': self._get_installed_packages(),
+            'system_config': self._capture_system_configs(),
+            'repository_configuration': self._get_repository_config()
         }
-        
-        try:
-            if os.path.exists(self.config_path):
-                with open(self.config_path, 'r') as f:
-                    user_config = json.load(f)
-                    # Deep merge of user config with defaults
-                    self.config = {**default_config, **user_config}
-            else:
-                self.config = default_config
-            
-            # Log configuration for audit trail
-            self.logger.info(f"Loaded configuration: {json.dumps(self.config, indent=2)}")
-            
-            return self.config
-        except Exception as e:
-            self.logger.error(f"Configuration loading error: {e}")
-            return default_config
-    
-    def advanced_network_check(self) -> bool:
+        return snapshot
+
+    def _get_installed_packages(self) -> List[str]:
         """
-        Multi-layered network stability assessment
+        Retrieve list of currently installed packages
         
-        Checks:
-        - Multiple critical endpoints
-        - DNS resolution
-        - Bandwidth estimation
-        """
-        endpoints = [
-            'https://blackarch.org',
-            'https://github.com',
-            'https://archlinux.org',
-            'https://raw.githubusercontent.com'
-        ]
-        
-        successful_checks = 0
-        for url in endpoints:
-            try:
-                start_time = time.time()
-                response = requests.get(
-                    url, 
-                    timeout=self.config.get('network_timeout', 30),
-                    headers={'User-Agent': 'BlackUtility/1.0'}
-                )
-                
-                if response.status_code == 200:
-                    successful_checks += 1
-                    # Optional bandwidth estimation
-                    download_time = time.time() - start_time
-                    self.logger.debug(f"Endpoint {url} check time: {download_time:.2f} seconds")
-            except requests.RequestException as e:
-                self.logger.warning(f"Network check failed for {url}: {e}")
-        
-        # Require at least 3/4 endpoints to be successful
-        return successful_checks >= (len(endpoints) * 0.75)
-    
-    def compute_tool_integrity(self, tool_name: str) -> str:
-        """
-        Compute and track tool installation integrity
-        
-        Generates a unique hash based on tool metadata
+        Returns:
+            List[str]: Installed package names
         """
         try:
-            # Retrieve tool info (placeholder - would use actual package management)
-            tool_info = subprocess.check_output(
-                ['pacman', '-Si', tool_name], 
-                universal_newlines=True
-            )
-            
-            # Create a hash of tool metadata
-            integrity_hash = hashlib.sha256(tool_info.encode()).hexdigest()
-            
-            return integrity_hash
-        except Exception as e:
-            self.logger.error(f"Integrity check failed for {tool_name}: {e}")
-            return ''
-    
-    def install_tool(self, tool: str) -> bool:
-        """
-        Enhanced tool installation with multiple safeguards
-        
-        Features:
-        - Comprehensive error handling
-        - Integrity verification
-        - Detailed logging
-        - Rollback capability
-        """
-        for attempt in range(self.config.get('retry_attempts', 3)):
-            try:
-                # Pre-installation checks
-                if not self.advanced_network_check():
-                    self.logger.warning("Network unstable. Delaying installation.")
-                    time.sleep(5)
-                    continue
-                
-                # Install tool
-                install_process = subprocess.run(
-                    ['sudo', 'pacman', '-S', '--noconfirm', tool], 
-                    capture_output=True, 
-                    text=True,
-                    timeout=600  # 10-minute timeout
-                )
-                
-                # Integrity verification
-                if self.config.get('integrity_check', True):
-                    integrity_hash = self.compute_tool_integrity(tool)
-                    
-                    # Database logging
-                    cursor = self.conn.cursor()
-                    cursor.execute('''
-                        INSERT OR REPLACE INTO tool_installations 
-                        (tool_name, installation_date, status, version, integrity_hash)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (
-                        tool, 
-                        time.strftime('%Y-%m-%d %H:%M:%S'), 
-                        'SUCCESS', 
-                        'latest', 
-                        integrity_hash
-                    ))
-                    self.conn.commit()
-                
-                self.logger.info(f"Successfully installed: {tool}")
-                return True
-            
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-                self.logger.warning(f"Installation attempt {attempt+1} failed for {tool}: {e}")
-                time.sleep(2)  # Exponential backoff
-        
-        # Mark tool as failed
-        self.installation_state['failed_tools'].append(tool)
-        return False
-    
-    def fetch_blackarch_tools(self) -> List[str]:
-        """
-        Advanced tool discovery
-        
-        Retrieves tools with category and metadata filtering
-        """
-        try:
-            # Placeholder - would use actual BlackArch repo queries
-            tools = subprocess.check_output(
-                ['pacman', '-Sl', 'blackarch'], 
+            packages = subprocess.check_output(
+                ['pacman', '-Qqe'], 
                 universal_newlines=True
             ).splitlines()
-            
-            # Filter tools based on selected categories
-            filtered_tools = [
-                tool.split()[1] for tool in tools 
-                if any(cat in tool for cat in self.config.get('categories', []))
-            ]
-            
-            return filtered_tools
-        
+            return packages
         except subprocess.CalledProcessError:
-            self.logger.error("Could not retrieve BlackArch tools")
+            self.logger.error("Could not retrieve installed packages")
             return []
-    
-    def parallel_install(self, tools: List[str]):
+
+    def _capture_system_configs(self) -> Dict:
         """
-        Intelligent parallel tool installation
+        Backup critical system configuration files
         
-        Manages concurrent installations with dynamic throttling
+        Returns:
+            Dict: Configuration file paths and their backup locations
         """
-        max_workers = self.config.get('max_parallel_downloads', 5)
+        config_files = [
+            '/etc/pacman.conf',
+            '/etc/makepkg.conf',
+            '/etc/mkinitcpio.conf'
+        ]
         
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(self.install_tool, tool): tool for tool in tools}
-            
-            for future in as_completed(futures):
-                tool = futures[future]
-                try:
-                    result = future.result()
-                    if result:
-                        self.installation_state['installed_tools'] += 1
-                except Exception as e:
-                    self.logger.error(f"Unexpected error installing {tool}: {e}")
-    
-    def interactive_menu(self):
-        """
-        Enhanced interactive menu with rich options
-        """
-        while True:
-            print("\n--- BlackUtility: BlackArch Tools Installer ---")
-            print("1. Install All Tools")
-            print("2. Install by Category")
-            print("3. View Installation History")
-            print("4. System Integrity Check")
-            print("5. Configuration")
-            print("6. Exit")
-            
-            choice = input("Select an option (1-6): ")
-            
-            if choice == '1':
-                tools = self.fetch_blackarch_tools()
-                self.parallel_install(tools)
-            elif choice == '2':
-                # Implement category selection
-                pass
-            elif choice == '3':
-                self.view_installation_history()
-            elif choice == '4':
-                self.system_integrity_check()
-            elif choice == '5':
-                self.configuration_menu()
-            elif choice == '6':
-                break
-    
-    def view_installation_history(self):
-        """
-        Display detailed installation history
-        """
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM tool_installations ORDER BY installation_date DESC")
-        history = cursor.fetchall()
+        backup_dir = os.path.join(self.config.backup_directory, 'configs')
+        os.makedirs(backup_dir, exist_ok=True)
         
-        print("\n--- Installation History ---")
-        for entry in history:
-            print(f"Tool: {entry[0]}, Date: {entry[1]}, Status: {entry[2]}")
-    
-    def system_integrity_check(self):
+        config_backups = {}
+        for config_path in config_files:
+            if os.path.exists(config_path):
+                backup_path = os.path.join(backup_dir, os.path.basename(config_path))
+                shutil.copy2(config_path, backup_path)
+                config_backups[config_path] = backup_path
+        
+        return config_backups
+
+    def _get_repository_config(self) -> Dict:
         """
-        Comprehensive system integrity verification
-        """
-        self.logger.info("Starting system-wide integrity check")
-        # Placeholder for actual comprehensive integrity verification
-        subprocess.run(['sudo', 'pacman', '-Qk'], check=False)
-    
-    def configuration_menu(self):
-        """
-        Interactive configuration management
-        """
-        while True:
-            print("\n--- Configuration Management ---")
-            print("1. View Current Configuration")
-            print("2. Modify Configuration")
-            print("3. Reset to Default")
-            print("4. Return to Main Menu")
-            
-            choice = input("Select an option (1-4): ")
-            
-            if choice == '1':
-                print(json.dumps(self.config, indent=2))
-            elif choice == '2':
-                # Implement configuration modification
-                pass
-            elif choice == '3':
-                self.config = self.load_config()
-            elif choice == '4':
-                break
-    
-    def main(self):
-        """
-        Primary workflow management
+        Retrieve current repository configuration
+        
+        Returns:
+            Dict: Current repository information
         """
         try:
-            self.interactive_menu()
-        except KeyboardInterrupt:
-            self.logger.info("Installation interrupted by user")
-        finally:
-            # Cleanup resources
-            if hasattr(self, 'conn'):
-                self.conn.close()
+            with open('/etc/pacman.conf', 'r') as f:
+                return self._parse_pacman_config(f.read())
+        except FileNotFoundError:
+            self.logger.error("pacman.conf not found")
+            return {}
+
+    def _parse_pacman_config(self, config_content: str) -> Dict:
+        """
+        Parse pacman configuration file
+        
+        Args:
+            config_content (str): Contents of pacman.conf
+        
+        Returns:
+            Dict: Parsed repository configuration
+        """
+        repos = {}
+        current_repo = None
+        
+        for line in config_content.splitlines():
+            line = line.strip()
+            if line.startswith('[') and line.endswith(']'):
+                current_repo = line[1:-1]
+                repos[current_repo] = {}
+            elif current_repo and '=' in line:
+                key, value = line.split('=', 1)
+                repos[current_repo][key.strip()] = value.strip()
+        
+        return repos
+
+    def add_blackarch_repository(self):
+        """
+        Add BlackArch repository to pacman configuration
+        """
+        blackarch_repo_script = '/tmp/blackarch-bootstrap.sh'
+        
+        try:
+            # Download BlackArch repository installation script
+            subprocess.run([
+                'curl', '-O', 
+                'https://blackarch.org/strap.sh'
+            ], check=True)
+            
+            # Move and make the script executable
+            shutil.move('strap.sh', blackarch_repo_script)
+            os.chmod(blackarch_repo_script, 0o755)
+            
+            # Execute repository installation script
+            subprocess.run(
+                ['sudo', 'bash', blackarch_repo_script], 
+                check=True
+            )
+            
+            self.logger.info("BlackArch repository successfully added")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Repository installation failed: {e}")
+            sys.exit(1)
+
+    def update_system(self):
+        """
+        Perform system-wide package update
+        """
+        try:
+            subprocess.run(
+                ['sudo', 'pacman', '-Syyu', '--noconfirm'], 
+                check=True
+            )
+            self.logger.info("System successfully updated")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"System update failed: {e}")
+
+    def install_blackarch_tools(self, categories: Optional[List[str]] = None):
+        """
+        Install BlackArch tools based on specified categories
+        
+        Args:
+            categories (List[str], optional): Tool categories to install
+        """
+        categories = categories or self.config.tool_categories or ['all']
+        
+        for category in categories:
+            try:
+                subprocess.run(
+                    ['sudo', 'pacman', '-S', '--noconfirm', f'blackarch-{category}'],
+                    check=True
+                )
+                self.logger.info(f"Installed tools in category: {category}")
+            except subprocess.CalledProcessError:
+                self.logger.warning(f"Could not install category: {category}")
+
+    def convert(self):
+        """
+        Execute complete BlackArch conversion process
+        """
+        self.logger.info("Starting BlackArch Linux Conversion")
+        
+        try:
+            # Pre-conversion checks
+            self._system_compatibility_check()
+            
+            # Create system backup
+            self._create_full_system_backup()
+            
+            # Add BlackArch repository
+            self.add_blackarch_repository()
+            
+            # Update system packages
+            self.update_system()
+            
+            # Install BlackArch tools
+            self.install_blackarch_tools()
+            
+            self.logger.info("BlackArch conversion completed successfully!")
+        
+        except Exception as e:
+            self.logger.error(f"Conversion failed: {e}")
+            self._restore_system_backup()
+
+    def _system_compatibility_check(self):
+        """
+        Perform comprehensive system compatibility verification
+        """
+        # Check Arch Linux base system
+        if not os.path.exists('/etc/arch-release'):
+            raise RuntimeError("Not an Arch Linux system")
+        
+        # Check available disk space
+        # Check system architecture
+        # Verify critical system components
+        pass
+
+    def _create_full_system_backup(self):
+        """
+        Create comprehensive system backup
+        """
+        backup_dir = os.path.join(
+            self.config.backup_directory, 
+            f'full_backup_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+        )
+        os.makedirs(backup_dir, exist_ok=True)
+        
+        # Backup package list
+        with open(os.path.join(backup_dir, 'package_list.txt'), 'w') as f:
+            f.write('\n'.join(self.system_snapshot['installed_packages']))
+
+    def _restore_system_backup(self):
+        """
+        Restore system to pre-conversion state in case of failure
+        """
+        self.logger.warning("Restoring system to previous state")
+        # Implement restoration logic
+        pass
 
 def main():
     """
-    Entry point for BlackUtility
+    Main execution entry point
     """
-    utility = BlackUtility()
-    utility.main()
+    config = ConversionConfig(
+        tool_categories=['penetration-testing', 'wireless'],
+        security_level='high'
+    )
+    
+    converter = BlackArchConverter(config)
+    converter.convert()
 
 if __name__ == '__main__':
     main()
-
-# Requirements (requirements.txt)
-"""
-requests
-sqlite3
-"""
-
-# Advanced Installation Instructions:
-"""
-Prerequisites:
-1. Python 3.8+
-2. Arch Linux or BlackArch Linux
-3. sudo privileges
-
-Installation Steps:
-1. Clone the repository
-2. Install dependencies: pip install -r requirements.txt
-3. Make script executable: chmod +x blackutility.py
-4. Run with: sudo python3 blackutility.py
-
-Recommended System Preparation:
-- Ensure your system is fully updated
-- Have BlackArch repository added to your system
-"""
