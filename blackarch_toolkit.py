@@ -2,35 +2,136 @@
 
 import os
 import sys
-import subprocess
 import logging
 import threading
-import time
 import json
 import yaml
 import uuid
-import socket
-import hashlib
-import requests
+import argparse
 from typing import List, Dict, Optional, Any
-from dataclasses import dataclass, asdict, field
 from datetime import datetime, timedelta
 
-import urwid  # Text-based User Interface
-import prompt_toolkit  # Advanced CLI interactions
-import flask  # Web dashboard
-import sqlalchemy  # Database management
-import plotly.express as px  # Interactive visualizations
-import asyncio
-import websockets  # Real-time updates
+# Ensure all required imports are available
+try:
+    import urwid
+    import prompt_toolkit
+    import flask
+    import sqlalchemy
+    import plotly.express as px
+    import asyncio
+    import websockets
+    import requests
+    from tqdm import tqdm
+except ImportError as e:
+    print(f"Missing dependencies: {e}")
+    print("Please install required packages using: pip install -r requirements.txt")
+    sys.exit(1)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('/var/log/blackarch_toolkit.log'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger('BlackArchToolkit')
+
+class ToolRepository:
+    """
+    Centralized repository for managing cybersecurity tools
+    """
+    def __init__(self, config_path='/etc/blackarch-toolkit/tools.yaml'):
+        self.config_path = config_path
+        self.tools = self._load_tools()
+    
+    def _load_tools(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Load tools from configuration file or create default
+        """
+        try:
+            with open(self.config_path, 'r') as f:
+                return yaml.safe_load(f) or {}
+        except FileNotFoundError:
+            default_tools = {
+                'nmap': {
+                    'category': 'Information Gathering',
+                    'description': 'Network discovery and security auditing',
+                    'installation_method': 'pacman',
+                    'package_name': 'nmap',
+                    'risk_level': 'medium'
+                },
+                'metasploit': {
+                    'category': 'Exploitation Frameworks',
+                    'description': 'Penetration testing framework',
+                    'installation_method': 'gem',
+                    'package_name': 'metasploit',
+                    'risk_level': 'high'
+                }
+                # More tools can be added
+            }
+            
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
+            
+            # Write default tools
+            with open(self.config_path, 'w') as f:
+                yaml.dump(default_tools, f)
+            
+            return default_tools
+    
+    def get_tools_by_category(self, category: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+        """
+        Retrieve tools, optionally filtered by category
+        """
+        if not category:
+            return self.tools
+        
+        return {
+            name: tool for name, tool in self.tools.items()
+            if tool['category'].lower() == category.lower()
+        }
+    
+    def install_tool(self, tool_name: str) -> bool:
+        """
+        Install a specific tool using appropriate method
+        """
+        if tool_name not in self.tools:
+            logger.error(f"Tool {tool_name} not found in repository")
+            return False
+        
+        tool = self.tools[tool_name]
+        method = tool['installation_method']
+        package = tool['package_name']
+        
+        try:
+            if method == 'pacman':
+                result = os.system(f'sudo pacman -S --noconfirm {package}')
+            elif method == 'gem':
+                result = os.system(f'sudo gem install {package}')
+            elif method == 'pip':
+                result = os.system(f'sudo pip install {package}')
+            else:
+                logger.error(f"Unsupported installation method: {method}")
+                return False
+            
+            return result == 0
+        except Exception as e:
+            logger.error(f"Installation of {tool_name} failed: {e}")
+            return False
 
 class BlackArchToolkitConfiguration:
     """
-    Comprehensive configuration management for BlackArch toolkit
+    Comprehensive configuration management
     """
     def __init__(self, config_path='/etc/blackarch-toolkit/config.yaml'):
         self.config_path = config_path
         self.default_config = {
+            'core': {
+                'debug_mode': False,
+                'anonymous_id': str(uuid.uuid4())
+            },
             'installation': {
                 'parallel_downloads': 5,
                 'bandwidth_limit': None,
@@ -40,10 +141,6 @@ class BlackArchToolkitConfiguration:
                 'signature_verification': True,
                 'min_trust_level': 0.7
             },
-            'telemetry': {
-                'usage_tracking': True,
-                'anonymous_id': str(uuid.uuid4())
-            },
             'dashboard': {
                 'host': 'localhost',
                 'port': 8080,
@@ -51,143 +148,63 @@ class BlackArchToolkitConfiguration:
                     'enabled': True,
                     'method': 'local'
                 }
+            },
+            'telemetry': {
+                'usage_tracking': True,
+                'report_interval_days': 30
             }
         }
-        self.load_or_create_config()
-
-    def load_or_create_config(self):
+        self.config = self._load_or_create_config()
+    
+    def _load_or_create_config(self) -> Dict[str, Any]:
         """
         Load existing configuration or create default
         """
         try:
             with open(self.config_path, 'r') as f:
-                self.config = yaml.safe_load(f)
+                loaded_config = yaml.safe_load(f)
+                # Merge loaded config with default, keeping loaded values
+                merged_config = {**self.default_config, **loaded_config}
+                return merged_config
         except FileNotFoundError:
-            self.config = self.default_config
+            # Create directories and config file
             os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
             with open(self.config_path, 'w') as f:
-                yaml.dump(self.config, f)
-
-@dataclass
-class ToolTelemetry:
-    """
-    Advanced telemetry tracking for cybersecurity tools
-    """
-    tool_name: str
-    usage_count: int = 0
-    last_used: datetime = field(default_factory=datetime.now)
-    total_execution_time: float = 0.0
-    success_rate: float = 1.0
-    performance_metrics: Dict[str, Any] = field(default_factory=dict)
-
-class BlackArchWebDashboard:
-    """
-    Full-featured web dashboard for tool management
-    """
-    def __init__(self, config):
-        self.app = flask.Flask(__name__)
-        self.config = config
-        self.setup_routes()
-        self.setup_websocket_server()
-
-    def setup_routes(self):
-        @self.app.route('/tools')
-        def list_tools():
-            # Retrieve and display tools
-            pass
-
-        @self.app.route('/tool/<tool_name>')
-        def tool_details(tool_name):
-            # Show detailed tool information
-            pass
-
-        @self.app.route('/install', methods=['POST'])
-        def install_tool():
-            # Handle tool installation requests
-            pass
-
-    def setup_websocket_server(self):
-        async def tool_status_updates(websocket, path):
-            # Real-time tool status streaming
-            pass
-
-    def run(self):
-        """
-        Start web dashboard and websocket server
-        """
-        dashboard_thread = threading.Thread(
-            target=self.app.run, 
-            kwargs={
-                'host': self.config['dashboard']['host'], 
-                'port': self.config['dashboard']['port']
-            }
-        )
-        dashboard_thread.start()
-
-class TextUserInterface:
-    """
-    Advanced Text-based User Interface for tool management
-    """
-    def __init__(self, toolkit_instance):
-        self.toolkit = toolkit_instance
-        self.setup_interface()
-
-    def setup_interface(self):
-        """
-        Create comprehensive TUI with multiple views
-        """
-        # Main menu with sections:
-        # 1. Tool Installation
-        # 2. Tool Management
-        # 3. System Health
-        # 4. Configuration
-        # 5. Advanced Search
-        pass
-
-    def tool_installation_view(self):
-        """
-        Interactive tool installation interface
-        """
-        # Implement multi-select tool installation
-        # Show tool details, dependencies, requirements
-        pass
-
-    def system_health_dashboard(self):
-        """
-        Real-time system and tool performance monitoring
-        """
-        # CPU usage per tool
-        # Memory consumption
-        # Network activity
-        # Risk/vulnerability scoring
-        pass
-
-class BlackArchToolkit:
-    """
-    Comprehensive cybersecurity tool management ecosystem
-    """
-    def __init__(self):
-        self.config = BlackArchToolkitConfiguration()
-        self.web_dashboard = BlackArchWebDashboard(self.config.config)
-        self.tui = TextUserInterface(self)
-
-    def run(self):
-        """
-        Start all toolkit components
-        """
-        # Concurrent execution of dashboard, TUI, and background services
-        dashboard_thread = threading.Thread(target=self.web_dashboard.run)
-        tui_thread = threading.Thread(target=self.tui.setup_interface)
-        
-        dashboard_thread.start()
-        tui_thread.start()
-
-        dashboard_thread.join()
-        tui_thread.join()
+                yaml.dump(self.default_config, f)
+            return self.default_config
+        except Exception as e:
+            logger.error(f"Error loading configuration: {e}")
+            return self.default_config
 
 def main():
-    toolkit = BlackArchToolkit()
-    toolkit.run()
+    """
+    Main entry point for BlackArch Toolkit
+    """
+    parser = argparse.ArgumentParser(description="BlackArch Toolkit - Cybersecurity Tool Management")
+    parser.add_argument('-c', '--category', help='Specify tool category for installation')
+    parser.add_argument('-r', '--resume', action='store_true', help='Resume previous installation')
+    parser.add_argument('--dashboard', action='store_true', help='Launch web management interface')
+    parser.add_argument('--tui', action='store_true', help='Start text-based user interface')
+    parser.add_argument('--config', help='Use custom configuration file')
+    
+    args = parser.parse_args()
+    
+    # Initialize core components
+    config = BlackArchToolkitConfiguration(args.config or '/etc/blackarch-toolkit/config.yaml')
+    tool_repo = ToolRepository()
+    
+    # Handle different modes of operation
+    if args.category:
+        # Install tools in specific category
+        category_tools = tool_repo.get_tools_by_category(args.category)
+        for tool_name in category_tools:
+            print(f"Installing {tool_name}...")
+            tool_repo.install_tool(tool_name)
+    
+    # Additional modes can be implemented here
+    # Web dashboard, TUI, etc.
+    
+    print("BlackArch Toolkit operation completed.")
 
 if __name__ == '__main__':
     main()
