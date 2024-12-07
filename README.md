@@ -30,10 +30,10 @@ The BlackArch Conversion Toolkit is a comprehensive Python utility designed to s
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/blackarch-conversion-toolkit.git
+git clone https://github.com/yourusername/blackutility.git
 
 # Change directory
-cd blackarch-conversion-toolkit
+cd blackutility
 
 # Ensure executable permissions
 chmod +x blackarch_converter.py
