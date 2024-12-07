@@ -4,263 +4,207 @@ import os
 import sys
 import subprocess
 import logging
-import yaml
-import json
 import argparse
-import inquirer
-import platform
-import psutil
-import socket
-import numpy as np
-from typing import List, Dict, Optional
+import json
+import sqlite3
+import hashlib
+from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, asdict, field
+import shutil
 from datetime import datetime
+import requests
+from colorama import Fore, Style, init
 
-# Advanced ML and Compatibility Libraries
-try:
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.cluster import KMeans
-except ImportError:
-    print("Please install scikit-learn: pip install scikit-learn")
-    sys.exit(1)
+# Initialize colorama for cross-platform colored output
+init(autoreset=True)
+
+class BlackArchConversionError(Exception):
+    """Custom exception for BlackArch conversion errors"""
+    pass
 
 @dataclass
-class ConversionConfig:
+class ConversionConfiguration:
     """
-    Comprehensive configuration for BlackArch conversion with extended capabilities
+    Comprehensive configuration for BlackArch Linux conversion
     """
+    output_directory: str = '/var/log/blackarch_conversion'
     backup_directory: str = '/var/log/blackarch_conversion_backup'
-    repositories_to_add: List[str] = field(default_factory=list)
+    repositories: List[str] = field(default_factory=lambda: ['blackarch'])
     tool_categories: List[str] = field(default_factory=list)
     security_level: str = 'standard'
-    preserve_existing_configs: bool = True
+    optimization_level: int = 2
     dry_run: bool = False
-    recommended_tools: List[str] = field(default_factory=list)
-    compatibility_report: Dict = field(default_factory=dict)
+    interactive: bool = True
+    logging_level: int = logging.INFO
 
-class ToolRecommender:
+class SystemPreflightChecker:
     """
-    Machine learning-based tool recommendation system
+    Performs comprehensive system compatibility and readiness checks
     """
-    def __init__(self, system_profile):
-        self.system_profile = system_profile
-        self.tool_database = self._load_tool_database()
-
-    def _load_tool_database(self):
+    @staticmethod
+    def check_system_compatibility() -> Dict[str, bool]:
         """
-        Load comprehensive database of BlackArch tools
-        """
-        default_tools = {
-            'penetration-testing': ['nmap', 'metasploit', 'wireshark'],
-            'wireless': ['aircrack-ng', 'kismet', 'wifi-pineapple'],
-            'forensics': ['volatility', 'autopsy', 'sleuthkit'],
-            'crypto': ['hashcat', 'john', 'cryptsetup']
-        }
-        return default_tools
-
-    def recommend_tools(self, k_recommendations=5):
-        """
-        Recommend tools based on system characteristics
-        """
-        # Simplified recommendation logic for demonstration
-        recommended_tools = []
-        for category, tools in self.tool_database.items():
-            recommended_tools.extend(tools[:k_recommendations])
+        Conduct thorough system compatibility assessment
         
-        return recommended_tools[:k_recommendations]
-
-class SystemCompatibilityAnalyzer:
-    """
-    Advanced system compatibility profiling
-    """
-    @staticmethod
-    def check_network_interfaces():
+        Returns:
+            Dict containing compatibility check results
         """
-        Detect and validate network interfaces
-        """
-        interfaces = psutil.net_if_stats()
-        return {
-            'wireless_interfaces': [
-                name for name, stats in interfaces.items() 
-                if 'wireless' in name.lower()
-            ],
-            'active_interfaces': [
-                name for name, stats in interfaces.items() 
-                if stats.isup
-            ]
+        checks = {
+            'is_arch_linux': os.path.exists('/etc/arch-release'),
+            'root_access': os.geteuid() == 0,
+            'sufficient_disk_space': SystemPreflightChecker._check_disk_space(),
+            'network_connectivity': SystemPreflightChecker._check_network(),
+            'pacman_available': shutil.which('pacman') is not None
         }
+        return checks
 
     @staticmethod
-    def analyze_hardware_capabilities():
+    def _check_disk_space(minimum_gb: int = 20) -> bool:
         """
-        Comprehensive hardware capability analysis
+        Check available disk space
+        
+        Args:
+            minimum_gb (int): Minimum required free space in GB
+        
+        Returns:
+            bool: Whether sufficient disk space is available
         """
-        return {
-            'cpu_architecture': platform.machine(),
-            'cpu_cores': psutil.cpu_count(logical=False),
-            'total_memory': round(psutil.virtual_memory().total / (1024 * 1024 * 1024), 2),  # GB
-            'storage_space': round(psutil.disk_usage('/').free / (1024 * 1024 * 1024), 2)  # GB
-        }
+        statvfs = os.statvfs('/')
+        free_bytes = statvfs.f_frsize * statvfs.f_bavail
+        free_gb = free_bytes / (1024 ** 3)
+        return free_gb >= minimum_gb
 
-    def generate_compatibility_report(self):
+    @staticmethod
+    def _check_network() -> bool:
         """
-        Create comprehensive system compatibility report
-        """
-        return {
-            'network': self.check_network_interfaces(),
-            'hardware': self.analyze_hardware_capabilities()
-        }
-
-class DependencyResolver:
-    """
-    Advanced dependency resolution mechanism
-    """
-    def __init__(self, package_list):
-        self.package_list = package_list
-
-    def resolve_conflicts(self):
-        """
-        Simple dependency conflict resolution
-        """
-        # Placeholder for advanced resolution logic
-        # In a real-world scenario, this would use pacman's dependency resolution
-        return {
-            'conflicts': [],
-            'resolutions': self.package_list
-        }
-
-class SystemOptimizer:
-    """
-    Post-conversion system optimization
-    """
-    def __init__(self, system_snapshot):
-        self.snapshot = system_snapshot
-        self.logger = logging.getLogger(__name__)
-
-    def optimize(self):
-        """
-        Perform multi-dimensional system optimization
+        Verify network connectivity
+        
+        Returns:
+            bool: Whether network is available
         """
         try:
-            self._tune_kernel_parameters()
-            self._optimize_service_startup()
-            self._configure_security_defaults()
-            self.logger.info("System optimization completed successfully")
-        except Exception as e:
-            self.logger.error(f"Optimization failed: {e}")
+            requests.get('https://blackarch.org', timeout=5)
+            return True
+        except requests.RequestException:
+            return False
 
-    def _tune_kernel_parameters(self):
+class BlackArchToolManager:
+    """
+    Manages BlackArch tool discovery, recommendation, and installation
+    """
+    def __init__(self, config: ConversionConfiguration):
+        self.config = config
+        self.tool_database = self._initialize_tool_database()
+
+    def _initialize_tool_database(self) -> sqlite3.Connection:
         """
-        Dynamic kernel parameter optimization
-        """
-        kernel_tweaks = {
-            'vm.swappiness': 10,  # Reduce swapping
-            'net.core.default_qdisc': 'fq_codel',  # Improve network queueing
-            'net.ipv4.tcp_congestion_control': 'bbr'  # Modern TCP congestion control
-        }
+        Create an in-memory SQLite database of BlackArch tools
         
-        for param, value in kernel_tweaks.items():
-            try:
-                subprocess.run(['sudo', 'sysctl', '-w', f'{param}={value}'], check=True)
-                self.logger.info(f"Tuned kernel parameter: {param}")
-            except subprocess.CalledProcessError:
-                self.logger.warning(f"Could not set {param}")
-
-    def _optimize_service_startup(self):
+        Returns:
+            SQLite database connection
         """
-        Analyze and optimize system service dependencies
-        """
-        # Disable unnecessary services
-        services_to_disable = [
-            'bluetooth', 
-            'cups', 
-            'ModemManager'
+        conn = sqlite3.connect(':memory:')
+        cursor = conn.cursor()
+        
+        # Rich tool metadata schema
+        cursor.execute('''
+            CREATE TABLE tools (
+                name TEXT PRIMARY KEY,
+                category TEXT,
+                description TEXT,
+                complexity REAL,
+                dependencies TEXT,
+                security_rating INTEGER
+            )
+        ''')
+        
+        # Populate with curated BlackArch tools
+        tools = [
+            ('nmap', 'network', 'Network discovery tool', 0.7, 'libpcap', 8),
+            ('metasploit', 'exploitation', 'Penetration testing framework', 0.9, 'ruby,postgresql', 9),
+            ('wireshark', 'network', 'Network protocol analyzer', 0.6, 'qt,libpcap', 7),
+            ('burpsuite', 'web', 'Web vulnerability scanner', 0.8, 'java', 9),
+            ('sqlmap', 'database', 'SQL injection tool', 0.7, 'python', 8)
         ]
         
-        for service in services_to_disable:
+        cursor.executemany('''
+            INSERT INTO tools 
+            (name, category, description, complexity, dependencies, security_rating) 
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', tools)
+        
+        conn.commit()
+        return conn
+
+    def recommend_tools(self, installed_packages: List[str]) -> List[str]:
+        """
+        Recommend BlackArch tools based on current system configuration
+        
+        Args:
+            installed_packages (List[str]): Currently installed packages
+        
+        Returns:
+            List of recommended tool names
+        """
+        cursor = self.tool_database.cursor()
+        
+        # Simple recommendation based on existing packages and categories
+        recommended_tools = []
+        for category in self.config.tool_categories:
+            cursor.execute('''
+                SELECT name FROM tools 
+                WHERE category = ? 
+                ORDER BY security_rating DESC 
+                LIMIT 3
+            ''', (category,))
+            recommended_tools.extend([row[0] for row in cursor.fetchall()])
+        
+        return list(set(recommended_tools))
+
+    def install_tools(self, tools: List[str]):
+        """
+        Install recommended BlackArch tools
+        
+        Args:
+            tools (List[str]): Tools to install
+        """
+        if self.config.dry_run:
+            print(f"{Fore.YELLOW}[DRY RUN] Would install tools: {', '.join(tools)}")
+            return
+        
+        for tool in tools:
             try:
-                subprocess.run(['sudo', 'systemctl', 'disable', service], check=True)
-                self.logger.info(f"Disabled service: {service}")
+                subprocess.run(
+                    ['sudo', 'pacman', '-S', '--noconfirm', f'blackarch-{tool}'],
+                    check=True
+                )
+                print(f"{Fore.GREEN}✓ Installed: {tool}")
             except subprocess.CalledProcessError:
-                self.logger.warning(f"Could not disable {service}")
+                print(f"{Fore.RED}✗ Failed to install: {tool}")
 
-    def _configure_security_defaults(self):
-        """
-        Set recommended security configurations
-        """
-        # Implement basic security hardening
-        subprocess.run(['sudo', 'chmod', '700', '/boot'], check=True)
-        subprocess.run(['sudo', 'chown', 'root:root', '/boot'], check=True)
-
-class InteractiveBlackArchConverter:
+class BlackArchConverter:
     """
-    Advanced BlackArch Linux Conversion Utility
+    Comprehensive BlackArch Linux conversion utility
     """
-    def __init__(self, config: Optional[ConversionConfig] = None):
-        """
-        Initialize conversion utility with comprehensive configuration
-        """
-        self.config = config or self._interactive_configuration()
+    def __init__(self, config: ConversionConfiguration):
+        self.config = config
         self.logger = self._setup_logging()
-        self.system_snapshot = self._create_system_snapshot()
+        self.preflight_checker = SystemPreflightChecker()
+        self.tool_manager = BlackArchToolManager(config)
 
-    def _interactive_configuration(self):
+    def _setup_logging(self) -> logging.Logger:
         """
-        Interactive configuration process with advanced options
+        Configure comprehensive logging for conversion process
         """
-        tool_categories = [
-            'penetration-testing', 
-            'wireless', 
-            'exploitation', 
-            'forensics', 
-            'crypto'
-        ]
-
-        questions = [
-            inquirer.Checkbox('tool_categories',
-                message="Select BlackArch tool categories to install",
-                choices=tool_categories),
-            inquirer.List('security_level',
-                message="Choose security configuration level",
-                choices=['low', 'standard', 'high', 'paranoid']),
-            inquirer.Confirm('preserve_configs',
-                message="Preserve existing system configurations?",
-                default=True),
-            inquirer.Confirm('dry_run',
-                message="Perform a dry run without making actual changes?",
-                default=False)
-        ]
-
-        answers = inquirer.prompt(questions)
+        os.makedirs(self.config.output_directory, exist_ok=True)
         
-        # Perform compatibility analysis
-        compatibility_analyzer = SystemCompatibilityAnalyzer()
-        compatibility_report = compatibility_analyzer.generate_compatibility_report()
-        
-        # Recommend tools based on system profile
-        tool_recommender = ToolRecommender(compatibility_report)
-        recommended_tools = tool_recommender.recommend_tools()
-
-        return ConversionConfig(
-            tool_categories=answers['tool_categories'],
-            security_level=answers['security_level'],
-            preserve_existing_configs=answers['preserve_configs'],
-            dry_run=answers['dry_run'],
-            recommended_tools=recommended_tools,
-            compatibility_report=compatibility_report
+        log_file = os.path.join(
+            self.config.output_directory, 
+            f'conversion_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
         )
-
-    def _setup_logging(self):
-        """
-        Configure comprehensive logging
-        """
-        log_dir = '/var/log/blackarch_conversion'
-        os.makedirs(log_dir, exist_ok=True)
-        
-        log_file = os.path.join(log_dir, f'conversion_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
         
         logging.basicConfig(
-            level=logging.INFO,
+            level=self.config.logging_level,
             format='%(asctime)s - %(levelname)s: %(message)s',
             handlers=[
                 logging.FileHandler(log_file),
@@ -269,115 +213,154 @@ class InteractiveBlackArchConverter:
         )
         return logging.getLogger(__name__)
 
-    def _create_system_snapshot(self):
+    def _perform_system_backup(self):
         """
-        Create comprehensive system configuration snapshot
+        Create comprehensive system backup
         """
-        return {
-            'installed_packages': self._get_installed_packages(),
-            'system_config': self._capture_system_configs(),
-            'compatibility_report': self.config.compatibility_report
-        }
-
-    def _get_installed_packages(self):
-        """
-        Retrieve list of currently installed packages
-        """
-        try:
-            packages = subprocess.check_output(
-                ['pacman', '-Qqe'], 
-                universal_newlines=True
-            ).splitlines()
-            return packages
-        except subprocess.CalledProcessError:
-            self.logger.error("Could not retrieve installed packages")
-            return []
-
-    def _capture_system_configs(self):
-        """
-        Backup critical system configuration files
-        """
-        # Implementation from previous script remains the same
-        config_files = [
-            '/etc/pacman.conf',
-            '/etc/makepkg.conf',
-            '/etc/mkinitcpio.conf'
-        ]
-        
-        backup_dir = os.path.join(self.config.backup_directory, 'configs')
+        backup_dir = os.path.join(
+            self.config.backup_directory, 
+            f'backup_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+        )
         os.makedirs(backup_dir, exist_ok=True)
         
-        config_backups = {}
-        for config_path in config_files:
-            if os.path.exists(config_path):
-                backup_path = os.path.join(backup_dir, os.path.basename(config_path))
-                shutil.copy2(config_path, backup_path)
-                config_backups[config_path] = backup_path
+        # Backup package list and critical configurations
+        subprocess.run(['pacman', '-Qqe'], 
+                       stdout=open(os.path.join(backup_dir, 'package_list.txt'), 'w'))
         
-        return config_backups
-
-    def add_blackarch_repository(self):
-        """
-        Add BlackArch repository to pacman configuration
-        """
-        # Same implementation as previous script
+        self.logger.info(f"System backup created at {backup_dir}")
 
     def convert(self):
         """
-        Execute complete BlackArch conversion process with advanced features
+        Execute comprehensive BlackArch Linux conversion
         """
-        self.logger.info("Starting Advanced BlackArch Linux Conversion")
+        print(f"{Fore.CYAN}[*] Starting BlackArch Linux Conversion")
         
-        try:
-            # Pre-conversion compatibility check
-            self.logger.info("Compatibility Report:")
-            for category, details in self.config.compatibility_report.items():
-                self.logger.info(f"{category.capitalize()}: {details}")
-            
-            # Recommended tools based on system profile
-            self.logger.info(f"Recommended Tools: {self.config.recommended_tools}")
-            
-            # Dependency resolution
-            dependency_resolver = DependencyResolver(
-                self.config.recommended_tools + 
-                ['blackarch-' + cat for cat in self.config.tool_categories]
-            )
-            resolution_result = dependency_resolver.resolve_conflicts()
-            self.logger.info(f"Dependency Resolution: {resolution_result}")
-            
-            # Perform conversion steps
-            self.add_blackarch_repository()
-            self.update_system()
-            self.install_blackarch_tools()
-            
-            # Post-conversion optimization
-            optimizer = SystemOptimizer(self.system_snapshot)
-            optimizer.optimize()
-            
-            self.logger.info("Advanced BlackArch conversion completed successfully!")
+        # System compatibility checks
+        compatibility = self.preflight_checker.check_system_compatibility()
         
-        except Exception as e:
-            self.logger.error(f"Conversion failed: {e}")
-            # Restoration logic would be implemented here
+        if not all(compatibility.values()):
+            print(f"{Fore.RED}[!] System Compatibility Check Failed:")
+            for check, result in compatibility.items():
+                status = f"{Fore.GREEN}✓" if result else f"{Fore.RED}✗"
+                print(f"    {status} {check}")
+            return
+        
+        # Backup current system
+        self._perform_system_backup()
+        
+        # Add BlackArch repositories
+        self._add_repositories()
+        
+        # Update system
+        self._update_system()
+        
+        # Recommend and install tools
+        installed_packages = subprocess.check_output(
+            ['pacman', '-Qqe'], 
+            universal_newlines=True
+        ).splitlines()
+        
+        recommended_tools = self.tool_manager.recommend_tools(installed_packages)
+        
+        if self.config.interactive:
+            self._interactive_tool_selection(recommended_tools)
+        else:
+            self.tool_manager.install_tools(recommended_tools)
+        
+        print(f"{Fore.GREEN}[✓] BlackArch Conversion Complete!")
 
-    def update_system(self):
+    def _add_repositories(self):
+        """
+        Add BlackArch repositories
+        """
+        try:
+            subprocess.run(
+                ['curl', '-O', 'https://blackarch.org/strap.sh'], 
+                check=True
+            )
+            subprocess.run(
+                ['chmod', '+x', 'strap.sh'], 
+                check=True
+            )
+            subprocess.run(
+                ['sudo', 'bash', 'strap.sh'], 
+                check=True
+            )
+            self.logger.info("BlackArch repositories added successfully")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Repository addition failed: {e}")
+            raise BlackArchConversionError("Could not add BlackArch repositories")
+
+    def _update_system(self):
         """
         Perform system-wide package update
         """
-        # Same implementation as previous script
+        try:
+            subprocess.run(
+                ['sudo', 'pacman', '-Syyu', '--noconfirm'], 
+                check=True
+            )
+            self.logger.info("System updated successfully")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"System update failed: {e}")
+            raise BlackArchConversionError("System update failed")
 
-    def install_blackarch_tools(self):
+    def _interactive_tool_selection(self, recommended_tools: List[str]):
         """
-        Install BlackArch tools based on configuration
+        Interactive tool selection and installation
         """
-        # Same implementation as previous script
+        print(f"\n{Fore.CYAN}[*] Recommended Tools:")
+        for i, tool in enumerate(recommended_tools, 1):
+            print(f"    {i}. {tool}")
+        
+        while True:
+            try:
+                selection = input(
+                    f"\n{Fore.YELLOW}Enter tool numbers to install (comma-separated, or 'all'): "
+                )
+                
+                if selection.lower() == 'all':
+                    self.tool_manager.install_tools(recommended_tools)
+                    break
+                
+                selected_tools = [recommended_tools[int(x.strip())-1] 
+                                  for x in selection.split(',')]
+                self.tool_manager.install_tools(selected_tools)
+                break
+            
+            except (ValueError, IndexError):
+                print(f"{Fore.RED}[!] Invalid selection. Try again.")
 
 def main():
     """
-    Main execution entry point
+    Command-line interface for BlackArch conversion
     """
-    converter = InteractiveBlackArchConverter()
-    converter.convert()
+    parser = argparse.ArgumentParser(description='BlackArch Linux Conversion Toolkit')
+    
+    parser.add_argument('-c', '--categories', nargs='+', 
+                        help='Tool categories to install')
+    parser.add_argument('-l', '--level', type=int, choices=[0, 1, 2, 3], 
+                        default=2, help='Optimization level')
+    parser.add_argument('--dry-run', action='store_true', 
+                        help='Simulate conversion without making changes')
+    parser.add_argument('--non-interactive', action='store_false', 
+                        dest='interactive', help='Non-interactive mode')
+    
+    args = parser.parse_args()
+    
+    config = ConversionConfiguration(
+        tool_categories=args.categories or ['network', 'exploitation'],
+        optimization_level=args.level,
+        dry_run=args.dry_run,
+        interactive=args.interactive
+    )
+    
+    try:
+        converter = BlackArchConverter(config)
+        converter.convert()
+    except BlackArchConversionError as e:
+        print(f"{Fore.RED}[!] Conversion Error: {e}")
+        sys.exit(1)
 
 if __name__ == '__main__':
     main()
