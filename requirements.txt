@@ -1,4 +1,5 @@
 tqdm 
+pandas
 pyyaml 
 requests 
 urwid 
