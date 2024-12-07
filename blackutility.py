@@ -18,6 +18,22 @@ from colorama import Fore, Style, init
 # Initialize colorama for cross-platform colored output
 init(autoreset=True)
 
+# Banner
+BANNER = f"""
+{Fore.RED}██████╗ ██╗      █████╗  ██████╗██╗  ██╗ █████╗ ██████╗  ██████╗  █████╗ ██╗  ██╗
+{Fore.YELLOW}██╔══██╗██║     ██╔══██╗██╔════╝██║  ██║██╔══██╗██╔══██╗██╔════╝ ██╔══██╗██║ ██╔╝
+{Fore.RED}██████╔╝██║     ███████║██║     ███████║███████║██████╔╝██║  ███╗███████║█████╔╝ 
+{Fore.YELLOW}██╔═══╝ ██║     ██╔══██║██║     ██╔══██║██╔══██║██╔═══╝ ██║   ██║██╔══██║██╔═██╗ 
+{Fore.RED}██║     ███████╗██║  ██║╚██████╗██║  ██║██║  ██║██║     ╚██████╔╝██║  ██║██║  ██╗
+{Fore.YELLOW}╚═╝     ╚══════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝      ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
+{Style.RESET_ALL}
+{Fore.CYAN}BlackArch Conversion Toolkit - Seamlessly integrate BlackArch tools into Arch Linux.
+{Fore.MAGENTA}Author: b0urn3 | GitHub: https://github.com/q4n0 | Contact: q4n0@proton.me
+{Fore.GREEN}Instagram: onlybyhive
+"""
+
+print(BANNER)
+
 class BlackArchConversionError(Exception):
     """Custom exception for BlackArch conversion errors"""
     pass
