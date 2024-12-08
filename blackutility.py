@@ -15,8 +15,54 @@ import pickle
 import argparse
 from tqdm import tqdm  # Enhanced progress bar
 
-class BlackArchInstaller:
+class BlackUtility:
     def __init__(self, category: str = 'all', resume: bool = False):
+        """
+        BlackUtility - Advanced Cybersecurity Tool Installer
+        
+        A comprehensive tool for managing cybersecurity toolsets
+        with robust installation and management capabilities.
+        """
+        # Colorful ASCII Banner with Contact Information
+        self.banner = r"""
+ ▄▄▄▄    ██▓    ▄▄▄       ▄████▄   ██░ ██  █    ██ ▄▄▄█████▓ ██▓ ██▓    ██▓▄▄▄█████▓▓██   ██▓
+▓█████▄ ▓██▒   ▒████▄    ▒██▀ ▀█  ▓██░ ██▓▒██  ▓██▒▓  ██▒ ▓▒▓██▒▓██▒   ▓██▒▓  ██▒ ▓▒ ▒██  ██▒
+▒██▒ ▄██▒██░   ▒██  ▀█▄  ▒▓█    ▄ ▒██▀▀██▓░ ▓██ ▒██░▒ ▓██░ ▒░▒██▒▒██░   ▒██▒▒ ▓██░ ▒░  ▒██ ██░
+▒██░█▀  ▒██░   ░██▄▄▄▄██ ▒▓▓▄ ▄██▒░▓█ ░██ ░ ▓▓█  ░██░░ ▓██▓ ░ ░██░▒██░   ░██░░ ▓██▓ ░   ░ ▐██▓░
+░▓█  ▀█▓░██████▒▓█   ▓██▒▒ ▓███▀ ░░▓█▒░██▓  ▒ ▓██▓ ░   ▒██▒ ░ ░██████▒░██████▒▒██▒ ░   ░ ██▒▓░
+░▒▓███▀▒░ ▒░▓  ░▒▒   ▓▒█░░ ░▒ ▒  ░ ▒ ░░▒░▒  ▒ ▒▓██  ░   ▒ ░░   ░ ▒░▓  ░░ ▒░▓  ░▒ ░░      ██▒▒▒ 
+▒░▒   ░ ░ ░ ▒  ░ ▒   ▒▒ ░  ░  ▒    ▒ ░▒░ ░  ░ ▒▓▒   ░     ░    ░ ░ ▒  ░░ ░ ▒  ░  ░      ▓██ ░▒░ 
+ ░    ░   ░ ░    ░   ▒   ░         ░  ░░ ░    ▒ ░    ░          ░ ░      ░ ░           ▒ ▒ ░░  
+ ░          ░  ░     ░  ░░ ░       ░  ░  ░    ░                   ░  ░    ░  ░          ▒ ░   
+      ░                  ░                                                              ░     
+
+    [Cybersecurity Tool Installer]
+
+    Developer: q4n0
+    Contact:  
+    • Email:    q4n0@proton.me
+    • GitHub:  github.com/q4n0
+    • IG:      @onlybyhive
+
+    Stay Ethical. Stay Secure.
+        """
+        
+        # Print banner
+        print(self.banner)
+        
+        # Logging configuration
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s: %(message)s',
+            filename='/var/log/blackutility.log',
+            filemode='a'
+        )
+        self.logger = logging.getLogger(__name__)
+
+        # Remaining initialization stays the same as in previous script
+        self.state_file = '/var/tmp/blackutility_state.pkl'
+        self.category = category
+        self.resume = resume
         """
         Initialize BlackArch Linux tool installer with comprehensive logging, configuration, and resume capabilities
         
@@ -346,31 +392,50 @@ class BlackArchInstaller:
 
 def parse_arguments():
     """
-    Parse command-line arguments
+    Parse command-line arguments with enhanced description
     
     Returns:
         argparse.Namespace: Parsed arguments
     """
-    parser = argparse.ArgumentParser(description='BlackArch Linux Tool Installer')
+    parser = argparse.ArgumentParser(
+        description='BlackUtility - Advanced Cybersecurity Tool Management System',
+        epilog='Developed by q4n0 | Secure Your Arsenal'
+    )
     parser.add_argument(
         '-c', '--category', 
         default='all', 
-        help='Specify tool category to install (default: all)'
+        help='Specify tool category to install (default: all available categories)'
     )
     parser.add_argument(
         '-r', '--resume', 
         action='store_true', 
-        help='Resume previous interrupted installation'
+        help='Resume a previously interrupted installation'
     )
     return parser.parse_args()
 
 if __name__ == '__main__':
+    # Add a startup message
+    print("🔒 BlackUtility Cybersecurity Tool Installer 🔒")
+    print("Preparing to manage your cybersecurity toolkit...\n")
+    
     # Parse command-line arguments
     args = parse_arguments()
     
     # Create and run installer
-    installer = BlackArchInstaller(
-        category=args.category, 
-        resume=args.resume
-    )
-    installer.main()
+    try:
+        installer = BlackUtility(
+            category=args.category, 
+            resume=args.resume
+        )
+        installer.main()
+    except Exception as e:
+        print(f"❌ Installation encountered an error: {e}")
+        sys.exit(1)
+
+# Developer Metadata
+__author__ = "q4n0"
+__contact__ = {
+    "email": "q4n0@proton.me",
+    "github": "github.com/q4n0",
+    "instagram": "@onlybyhive"
+}
