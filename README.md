@@ -1,105 +1,126 @@
-# BlackArch Conversion Toolkit
+# 🔒 BlackUtility: Cybersecurity Tool Management System
 
 ## Overview
 
-The BlackArch Conversion Toolkit is a comprehensive Python utility designed to seamlessly convert an existing Arch Linux system into a security-focused BlackArch Linux environment. This tool provides an automated, configurable method to integrate BlackArch's extensive collection of cybersecurity and penetration testing tools.
+BlackUtility is an advanced, automated tool for managing and installing cybersecurity tools on Arch Linux systems. Designed for security professionals, researchers, and ethical hackers, this utility simplifies the process of setting up a comprehensive cybersecurity toolkit.
 
-## Author Information
-- **Name:** b0urn3
-- **GitHub:** [github.com/q4n0](https://github.com/q4n0)
-- **Contact:** q4n0@proton.me
+## 🌟 Key Features
 
-## Features
+### Comprehensive Tool Management
+- Install tools across multiple cybersecurity domains
+- Support for targeted category-based installations
+- Robust error handling and retry mechanisms
+- Parallel tool installation for efficiency
 
-- 🔍 System Compatibility Checking
-- 💾 Automatic System Backup
-- 🛠 Intelligent Tool Recommendation
-- 🔒 Security-Focused Tool Installation
-- 🖥 Interactive and Non-Interactive Modes
-- 📊 Detailed Logging
+### Installation Categories
+BlackUtility supports the following tool categories:
+- Information Gathering
+- Vulnerability Analysis
+- Web Applications
+- Exploitation
+- Password Attacks
+- Wireless Attacks
+- Reverse Engineering
+- Forensics
 
-## Prerequisites
+### Advanced Capabilities
+- Internet connectivity verification
+- Storage space validation
+- Detailed logging
+- Installation state tracking and resume functionality
+- Comprehensive installation reporting
+
+## 🛠 Prerequisites
 
 - Arch Linux system
-- Root/sudo access
+- Sudo privileges
 - Active internet connection
-- Minimum 20GB free disk space
-- Python 3.8+
+- Minimum 10 GB of free storage space
 
-## Installation
+## 📦 Installation
 
+1. Clone the repository
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/blackutility.git
-
-# Change directory
+git clone https://github.com/q4n0/blackutility.git
 cd blackutility
-
-# Ensure executable permissions
-chmod +x blackarch_converter.py
 ```
 
-## Usage
+2. Ensure script is executable
+```bash
+chmod +x blackutility.py
+```
+
+## 🚀 Usage
 
 ### Basic Usage
 ```bash
-sudo python3 blackarch_converter.py
+sudo python3 blackutility.py
 ```
+This will install all available BlackArch tools.
 
-### Advanced Options
+### Advanced Usage Options
+
+#### Install Specific Category
 ```bash
-# Specify tool categories
-sudo python3 blackarch_converter.py -c network exploitation
-
-# Set optimization level (0-3)
-sudo python3 blackarch_converter.py -l 2
-
-# Dry run (simulation mode)
-sudo python3 blackarch_converter.py --dry-run
-
-# Non-interactive mode
-sudo python3 blackarch_converter.py --non-interactive
+sudo python3 blackutility.py -c web-applications
 ```
 
-### Command-Line Arguments
-- `-c/--categories`: Select specific tool categories
-- `-l/--level`: Set optimization level (default: 2)
-- `--dry-run`: Simulate conversion without changes
-- `--non-interactive`: Automatic tool installation
+#### Resume Interrupted Installation
+```bash
+sudo python3 blackutility.py -r
+```
 
-## Configuration
+## 📋 Command-Line Arguments
 
-The script uses a `ConversionConfiguration` class with customizable parameters:
-- `output_directory`: Logging destination
-- `backup_directory`: System backup location
-- `repositories`: BlackArch repositories to add
-- `tool_categories`: Categories for tool recommendations
-- `security_level`: Conversion security profile
-- `optimization_level`: System optimization setting
+- `-c, --category`: Specify tool category (default: all)
+- `-r, --resume`: Resume a previously interrupted installation
 
-## Logging
+## 🔍 How It Works
 
-Conversion logs are stored in `/var/log/blackarch_conversion/` with timestamped log files for tracking and debugging.
+1. Verifies Arch Linux system
+2. Adds BlackArch repository
+3. Retrieves tool list for specified category
+4. Performs parallel tool installation
+5. Generates comprehensive installation report
 
-## Safety Recommendations
+## 📊 Installation Reporting
 
-⚠️ **IMPORTANT**: 
-- Always backup your system before running
-- Understand that this tool makes significant system modifications
-- Recommended for advanced users familiar with Linux
+After installation, a detailed report is generated at:
+`/var/log/blackarch_installation_report.json`
 
-## Contributing
+The report includes:
+- Total tools processed
+- Successfully installed tools
+- Failed installations
+- Overall success rate
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+## ⚠️ Important Notes
 
-## License
+- Requires active internet connection
+- Minimum 10 GB storage recommended
+- Only works on Arch Linux systems
+- Uses sudo for package management
 
-See the LICENSE file for details. 
+## 🛡️ Ethical Use Statement
 
-## Disclaimer
+BlackUtility is designed for authorized cybersecurity research, penetration testing, and educational purposes. Users must comply with local laws and obtain proper authorization before using any included tools.
 
-This tool is provided "as-is" without warranties. Use at your own risk. Always have a backup and understand the changes being made to your system.
+## 👤 Developer Information
+
+- **Developer**: q4n0
+- **Contact**:
+  - Email: q4n0@proton.me
+  - GitHub: github.com/q4n0
+  - Instagram: @onlybyhive
+
+## 📄 License
+
+[Read the License.md file for License information]
+
+## 🤝 Contributions
+
+Contributions, issues, and feature requests are welcome! Feel free to check the issues page.
+
+## 🚨 Disclaimer
+
+This tool is for educational and authorized testing purposes only. Misuse of these tools can be illegal and unethical, Tool is provided as is with no warranties proceed with CAUTION!
