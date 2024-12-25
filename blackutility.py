@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+# Standard library imports for system operations and utilities
 import os
 import sys
 import subprocess
@@ -13,17 +14,22 @@ import shutil
 import signal
 import pickle
 import argparse
-from tqdm import tqdm
+import hashlib
+from pathlib import Path
+
+# Third-party imports for enhanced functionality
+from tqdm import tqdm  # For progress bars
+import requests       # For downloading files
 
 class BlackUtility:
     def __init__(self, category: str = 'all', resume: bool = False):
         """
-        BlackUtility - Advanced Cybersecurity Tool Installer
+        Initialize the BlackUtility installer with comprehensive security tool management.
         
-        A comprehensive tool for managing cybersecurity toolsets
-        with robust installation and management capabilities.
+        Args:
+            category (str): Tool category to install (default: 'all')
+            resume (bool): Whether to resume a previous installation
         """
-        # Updated ASCII Banner
         self.banner = r"""
 ██████╗ ██╗      █████╗  ██████╗██╗  ██╗██╗   ██╗████████╗██╗██╗     
 ██╔══██╗██║     ██╔══██╗██╔════╝██║ ██╔╝██║   ██║╚══██╔══╝██║██║     
@@ -40,10 +46,10 @@ class BlackUtility:
     Stay Ethical. Stay Secure. Enjoy!
         """
         
-        # Print banner
         print(self.banner)
         
-        # Logging configuration
+        # Initialize logging configuration
+        os.makedirs('/var/log', exist_ok=True)  # Ensure log directory exists
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s: %(message)s',
@@ -52,14 +58,16 @@ class BlackUtility:
         )
         self.logger = logging.getLogger(__name__)
 
-        # State tracking
+        # State management configuration
         self.state_file = '/var/tmp/blackutility_state.pkl'
         self.category = category
         self.resume = resume
+        self.completed_tools = []
+        self.remaining_tools = []
 
-        # Configuration for tool categories and installation strategies
+        # Tool categories with their respective packages
         self.tool_categories = {
-            'all': None,  # Special case for all tools
+            'all': None,
             'information-gathering': ['nmap', 'maltego', 'dmitry', 'fierce'],
             'vulnerability-analysis': ['nmap', 'openvas', 'nikto', 'sqlmap'],
             'web-applications': ['burpsuite', 'sqlmap', 'zaproxy', 'wpscan'],
@@ -70,18 +78,159 @@ class BlackUtility:
             'forensics': ['volatility', 'autopsy', 'binwalk']
         }
 
-        # Installation configuration
+        # Installation parameters
         self.max_retries = 3
         self.retry_delay = 10  # seconds
         self.min_storage_required = 10 * 1024 * 1024 * 1024  # 10 GB
 
-        # Signal handling
+        # Set up signal handlers for graceful interruption
         signal.signal(signal.SIGINT, self.handle_interrupt)
         signal.signal(signal.SIGTERM, self.handle_interrupt)
 
+    def download_and_verify_strap(self) -> bool:
+        """
+        Download and verify the BlackArch strap script with SHA1 verification.
+        
+        Returns:
+            bool: True if download and verification successful, False otherwise
+        """
+        print("\n📥 Downloading BlackArch strap script...")
+        
+        strap_url = "https://blackarch.org/strap.sh"
+        strap_path = "/tmp/strap.sh"
+        
+        try:
+            # Download the strap script
+            response = requests.get(strap_url, timeout=30)
+            response.raise_for_status()
+            
+            # Save the script locally
+            with open(strap_path, "wb") as f:
+                f.write(response.content)
+            
+            # Make the script executable
+            os.chmod(strap_path, 0o755)
+            
+            # Calculate SHA1 of downloaded file
+            sha1_calc = hashlib.sha1(response.content).hexdigest()
+            
+            # Get official SHA1 from BlackArch
+            sha1_response = requests.get("https://blackarch.org/strap.sh.sha1sum", timeout=30)
+            sha1_response.raise_for_status()
+            sha1_official = sha1_response.text.strip().split()[0]
+            
+            if sha1_calc == sha1_official:
+                print("✅ Strap script downloaded and verified successfully")
+                return True
+            else:
+                print("❌ Strap script verification failed")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Error downloading strap script: {e}")
+            print(f"❌ Failed to download strap script: {e}")
+            return False
+
+    def install_strap(self) -> bool:
+        """
+        Install the BlackArch strap script.
+        
+        Returns:
+            bool: True if installation successful, False otherwise
+        """
+        try:
+            result = subprocess.run(
+                ['sudo', '/tmp/strap.sh'],
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            print("✅ BlackArch strap installed successfully")
+            return True
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Strap installation failed: {e.stderr}")
+            print(f"❌ Strap installation failed: {e.stderr}")
+            return False
+
+    def check_internet_connection(self) -> bool:
+        """
+        Check internet connectivity using multiple DNS servers.
+        
+        Returns:
+            bool: True if connection is stable, False otherwise
+        """
+        try:
+            test_hosts = [
+                ('8.8.8.8', 53),  # Google DNS
+                ('1.1.1.1', 53),  # Cloudflare DNS
+                ('9.9.9.9', 53)   # Quad9 DNS
+            ]
+            
+            for host, port in test_hosts:
+                socket.setdefaulttimeout(3)
+                socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
+            return True
+        except (socket.error, socket.timeout):
+            self.logger.warning("Internet connection is unstable")
+            return False
+
+    def check_storage_availability(self) -> bool:
+        """
+        Verify sufficient storage space is available.
+        
+        Returns:
+            bool: True if enough space available, False otherwise
+        """
+        total, used, free = shutil.disk_usage('/')
+        self.logger.info(f"Total Storage: {total / (1024*1024*1024):.2f} GB")
+        self.logger.info(f"Free Storage: {free / (1024*1024*1024):.2f} GB")
+        
+        is_sufficient = free >= self.min_storage_required
+        if not is_sufficient:
+            self.logger.error(f"Insufficient storage. Requires at least {self.min_storage_required / (1024*1024*1024):.2f} GB")
+        return is_sufficient
+
+    def check_arch_system(self) -> bool:
+        """
+        Verify the system is running Arch Linux.
+        
+        Returns:
+            bool: True if running on Arch Linux, False otherwise
+        """
+        try:
+            with open('/etc/os-release', 'r') as f:
+                return 'Arch Linux' in f.read()
+        except FileNotFoundError:
+            self.logger.error("Unable to verify Arch Linux system")
+            return False
+
+    def handle_interrupt(self, signum, frame):
+        """
+        Handle interruption signals gracefully and save state.
+        
+        Args:
+            signum: Signal number
+            frame: Current stack frame
+        """
+        self.logger.warning(f"Received interrupt signal {signum}")
+        try:
+            with open(self.state_file, 'wb') as f:
+                pickle.dump({
+                    'category': self.category,
+                    'completed_tools': self.completed_tools,
+                    'remaining_tools': self.remaining_tools
+                }, f)
+            print("\nInstallation paused. Use --resume to continue later.")
+        except Exception as e:
+            self.logger.error(f"Failed to save state: {e}")
+        sys.exit(0)
+
     def check_requirements(self) -> bool:
         """
-        Comprehensive check of all requirements before proceeding with BlackArch installation.
+        Comprehensive check of all system requirements.
+        
+        Returns:
+            bool: True if all requirements met, False otherwise
         """
         requirements_status = {
             'root_access': False,
@@ -102,7 +251,7 @@ class BlackUtility:
             print("✅ Root access available")
         except subprocess.CalledProcessError:
             print("❌ Root access not available")
-            self.logger.error("Root access check failed")
+            return False
             
         # Verify Arch Linux system
         if self.check_arch_system():
@@ -110,6 +259,7 @@ class BlackUtility:
             print("✅ Running on Arch Linux")
         else:
             print("❌ Not running on Arch Linux")
+            return False
             
         # Check internet connectivity
         if self.check_internet_connection():
@@ -117,6 +267,7 @@ class BlackUtility:
             print("✅ Internet connection stable")
         else:
             print("❌ Internet connection unstable")
+            return False
             
         # Verify storage space
         if self.check_storage_availability():
@@ -124,6 +275,7 @@ class BlackUtility:
             print("✅ Sufficient storage space available")
         else:
             print("❌ Insufficient storage space")
+            return False
             
         # Check RAM requirements (minimum 2GB)
         total_ram = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
@@ -132,24 +284,21 @@ class BlackUtility:
             print("✅ Sufficient RAM available")
         else:
             print("❌ Insufficient RAM (minimum 2GB required)")
+            return False
             
         # Check if BlackArch strap exists and is valid
         strap_path = '/usr/bin/blackarch-strap'
-        if os.path.exists(strap_path):
-            try:
-                strap_sha1 = subprocess.run(
-                    ['sha1sum', strap_path],
-                    capture_output=True,
-                    text=True,
-                    check=True
-                ).stdout.split()[0]
-                
+        if not os.path.exists(strap_path):
+            print("ℹ️ BlackArch strap not found. Attempting to download and install...")
+            if self.download_and_verify_strap() and self.install_strap():
                 requirements_status['strap_exists'] = True
-                print("✅ BlackArch strap is present and valid")
-            except subprocess.CalledProcessError:
-                print("❌ BlackArch strap validation failed")
+                print("✅ BlackArch strap installed successfully")
+            else:
+                print("❌ Failed to install BlackArch strap")
+                return False
         else:
-            print("❌ BlackArch strap not found")
+            requirements_status['strap_exists'] = True
+            print("✅ BlackArch strap is present")
             
         # Check pacman configuration
         try:
@@ -158,109 +307,20 @@ class BlackUtility:
             print("✅ Pacman is properly configured")
         except subprocess.CalledProcessError:
             print("❌ Pacman is not properly configured")
-            
-        # Generate detailed report
-        print("\n📋 Requirements Summary:")
-        all_requirements_met = all(requirements_status.values())
-        for requirement, status in requirements_status.items():
-            status_symbol = "✅" if status else "❌"
-            print(f"{status_symbol} {requirement.replace('_', ' ').title()}")
-            
-        if all_requirements_met:
-            print("\n✨ All requirements satisfied! Proceeding with installation...")
-        else:
-            print("\n❌ Some requirements not met. Please address the issues above.")
-            self.logger.error("Requirements check failed")
-            
-        return all_requirements_met
-
-    def check_internet_connection(self) -> bool:
-        """Check internet connectivity with multiple attempts and timeout"""
-        try:
-            test_hosts = [
-                ('8.8.8.8', 53),  # Google DNS
-                ('1.1.1.1', 53),  # Cloudflare DNS
-                ('9.9.9.9', 53)   # Quad9 DNS
-            ]
-            
-            for host, port in test_hosts:
-                socket.setdefaulttimeout(3)
-                socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
-            return True
-        except (socket.error, socket.timeout):
-            self.logger.warning("Internet connection is unstable")
             return False
-
-    def check_storage_availability(self) -> bool:
-        """Check available storage space"""
-        total, used, free = shutil.disk_usage('/')
-        self.logger.info(f"Total Storage: {total / (1024*1024*1024):.2f} GB")
-        self.logger.info(f"Free Storage: {free / (1024*1024*1024):.2f} GB")
-        
-        is_sufficient = free >= self.min_storage_required
-        if not is_sufficient:
-            self.logger.error(f"Insufficient storage. Requires at least {self.min_storage_required / (1024*1024*1024):.2f} GB")
-        return is_sufficient
-
-    def handle_interrupt(self, signum, frame):
-        """Handle interruption signals gracefully"""
-        self.logger.warning(f"Received interrupt signal {signum}")
-        try:
-            with open(self.state_file, 'wb') as f:
-                pickle.dump({
-                    'category': self.category,
-                    'completed_tools': self.completed_tools,
-                    'remaining_tools': self.remaining_tools
-                }, f)
-            print("\nInstallation paused. Use --resume to continue later.")
-        except Exception as e:
-            self.logger.error(f"Failed to save state: {e}")
-        sys.exit(0)
-
-    def load_previous_state(self) -> Optional[Dict]:
-        """Load previous installation state if resuming"""
-        try:
-            if os.path.exists(self.state_file):
-                with open(self.state_file, 'rb') as f:
-                    return pickle.load(f)
-        except Exception as e:
-            self.logger.error(f"Error loading previous state: {e}")
-        return None
-
-    def check_arch_system(self) -> bool:
-        """Verify the system is running Arch Linux"""
-        try:
-            with open('/etc/os-release', 'r') as f:
-                return 'Arch Linux' in f.read()
-        except FileNotFoundError:
-            self.logger.error("Unable to verify Arch Linux system")
-            return False
-
-    def add_blackarch_repository(self) -> bool:
-        """Add BlackArch Linux repository with error handling"""
-        if not self.check_internet_connection():
-            print("❌ Internet connection is unstable. Please check your network.")
-            return False
-
-        commands = [
-            ['pacman', '-Sy', '--noconfirm'],
-            ['curl', '-O', 'https://blackarch.org/strap.sh'],
-            ['chmod', '+x', 'strap.sh'],
-            ['sudo', './strap.sh']
-        ]
-
-        for cmd in commands:
-            try:
-                result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-                print(f"✅ Successfully executed: {' '.join(cmd)}")
-            except subprocess.CalledProcessError as e:
-                print(f"❌ Command failed: {' '.join(cmd)}")
-                self.logger.error(f"Error output: {e.stderr}")
-                return False
-        return True
+            
+        return all(requirements_status.values())
 
     def get_tools_by_category(self, category: str) -> List[str]:
-        """Retrieve tools for a specific category"""
+        """
+        Get list of tools for the specified category.
+        
+        Args:
+            category (str): Tool category name
+            
+        Returns:
+            List[str]: List of tool names
+        """
         if category not in self.tool_categories:
             self.logger.error(f"Invalid category: {category}")
             return []
@@ -281,22 +341,30 @@ class BlackUtility:
         return self.tool_categories.get(category, [])
 
     def install_tools(self, tools: List[str]) -> Dict[str, bool]:
-        """Install tools with retry mechanism and progress tracking"""
+        """
+        Install specified tools with retry mechanism and progress tracking.
+        
+        Args:
+            tools (List[str]): List of tools to install
+            
+        Returns:
+            Dict[str, bool]: Installation results for each tool
+        """
         if not self.check_storage_availability():
             print("❌ Insufficient storage space. Aborting installation.")
             return {}
 
+        # Load previous state if resuming
         previous_state = self.load_previous_state() if self.resume else None
         
         if previous_state:
             tools = previous_state.get('remaining_tools', tools)
             self.completed_tools = previous_state.get('completed_tools', [])
-        else:
-            self.completed_tools = []
         
         self.remaining_tools = tools.copy()
 
-        def install_tool(tool):
+        def install_tool(tool: str) -> tuple:
+            """Install a single tool with retry mechanism."""
             if tool in self.completed_tools:
                 return tool, True
 
@@ -307,8 +375,8 @@ class BlackUtility:
                         return tool, False
 
                     subprocess.run(
-                        ['sudo', 'pacman', '-S', tool, '--noconfirm'], 
-                        check=True, 
+                        ['sudo', 'pacman', '-S', '--noconfirm', tool],
+                        check=True,
                         capture_output=True
                     )
                     
@@ -324,77 +392,155 @@ class BlackUtility:
         results = {}
         with tqdm(total=len(tools), desc="Installing BlackArch Tools", unit="tool") as pbar:
             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                for tool, success in executor.map(install_tool, self.remaining_tools):
-                    results[tool] = success
-                    pbar.update(1)
-                    
-                    if os.path.exists(self.state_file):
-                        os.remove(self.state_file)
+                future_to_tool = {executor.submit(install_tool, tool): tool for tool in tools}
+                for future in concurrent.futures.as_completed(future_to_tool):
+                    tool = future_to_tool[future]
+                    try:
+                        tool, success = future.result()
+                        results[tool] = success
+                        pbar.update(1)
+                    except Exception as e:
+                        self.logger.error(f"Error installing {tool}: {e}")
+                        results[tool] = False
+                        pbar.update(1)
+
+        # Clean up state file after successful completion
+        if os.path.exists(self.state_file):
+            os.remove(self.state_file)
 
         return results
 
+    def load_previous_state(self) -> Optional[Dict]:
+        """
+        Load previous installation state for resume functionality.
+        
+        Returns:
+            Optional[Dict]: Previous state if available, None otherwise
+        """
+        try:
+            if os.path.exists(self.state_file):
+                with open(self.state_file, 'rb') as f:
+                    return pickle.load(f)
+        except Exception as e:
+            self.logger.error(f"Error loading previous state: {e}")
+        return None
+
+    def add_blackarch_repository(self) -> bool:
+        """
+        Add BlackArch Linux repository to pacman configuration.
+        
+        Returns:
+            bool: True if repository added successfully, False otherwise
+        """
+        if not self.check_internet_connection():
+            print("❌ Internet connection is unstable. Please check your network.")
+            return False
+
+        try:
+            # Update pacman
+            print("📦 Updating pacman databases...")
+            subprocess.run(['sudo', 'pacman', '-Sy', '--noconfirm'], 
+                         check=True, capture_output=True)
+
+            # Install keyring if needed
+            print("🔑 Installing archlinux-keyring...")
+            subprocess.run(['sudo', 'pacman', '-S', '--noconfirm', 'archlinux-keyring'],
+                         check=True, capture_output=True)
+
+            print("✅ Repository configuration completed")
+            return True
+
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Repository configuration failed: {e.stderr}")
+            print(f"❌ Repository configuration failed: {e.stderr}")
+            return False
+
     def generate_install_report(self, results: Dict[str, bool]) -> None:
-        """Generate detailed installation report"""
+        """
+        Generate and save detailed installation report.
+        
+        Args:
+            results (Dict[str, bool]): Installation results for each tool
+        """
         successful_tools = [tool for tool, status in results.items() if status]
         failed_tools = [tool for tool, status in results.items() if not status]
 
         report = {
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
             'total_tools': len(results),
             'successful_tools': successful_tools,
             'failed_tools': failed_tools,
-            'success_rate': len(successful_tools) / len(results) * 100 if results else 0
+            'success_rate': len(successful_tools) / len(results) * 100 if results else 0,
+            'category': self.category
         }
 
+        # Create report directory if it doesn't exist
+        os.makedirs('/var/log', exist_ok=True)
+        
+        # Save detailed report
         with open('/var/log/blackarch_installation_report.json', 'w') as f:
             json.dump(report, f, indent=4)
 
+        # Print summary to console
         print("\n🔧 BlackArch Installation Report 🔧")
         print(f"Total Tools: {report['total_tools']}")
-        print(f"✅ Successful Tools: {len(successful_tools)}")
-        print(f"❌ Failed Tools: {len(failed_tools)}")
+        print(f"✅ Successfully Installed: {len(successful_tools)}")
+        print(f"❌ Failed to Install: {len(failed_tools)}")
         print(f"📊 Success Rate: {report['success_rate']:.2f}%")
 
+        if failed_tools:
+            print("\nFailed tools list:")
+            for tool in failed_tools:
+                print(f"  - {tool}")
+            print("\nYou can try reinstalling failed tools later using:")
+            print(f"sudo pacman -S [tool_name]")
+
+        # Log report details
+        self.logger.info(f"Installation completed - Success Rate: {report['success_rate']:.2f}%")
         self.logger.info(f"Total Tools: {report['total_tools']}")
         self.logger.info(f"Successful Tools: {len(successful_tools)}")
         self.logger.info(f"Failed Tools: {len(failed_tools)}")
-        self.logger.info(f"Success Rate: {report['success_rate']:.2f}%")
 
     def main(self):
         """
-        Main installation workflow with comprehensive requirement checking
+        Main installation workflow with comprehensive error handling.
         """
-        # Check all requirements first
-        if not self.check_requirements():
-            print("❌ Requirements not met. Aborting installation.")
-            sys.exit(1)
-            
-        # Validate Arch Linux system
-        if not self.check_arch_system():
-            print("❌ Not an Arch Linux system. Aborting.")
-            sys.exit(1)
+        try:
+            # Check all requirements first
+            if not self.check_requirements():
+                print("❌ Requirements not met. Aborting installation.")
+                sys.exit(1)
 
-        # Add BlackArch repository
-        if not self.add_blackarch_repository():
-            print("❌ Failed to add BlackArch repository")
-            sys.exit(1)
+            # Add BlackArch repository
+            if not self.add_blackarch_repository():
+                print("❌ Failed to add BlackArch repository")
+                sys.exit(1)
 
-        # Get tools to install
-        tools = self.get_tools_by_category(self.category)
-        if not tools:
-            print("❌ No tools found for the specified category")
-            sys.exit(1)
+            # Get tools to install
+            print("\n📋 Preparing tool list...")
+            tools = self.get_tools_by_category(self.category)
+            if not tools:
+                print("❌ No tools found for the specified category")
+                sys.exit(1)
+
+            print(f"🔍 Found {len(tools)} tools to install in category '{self.category}'")
             
-        # Install tools
-        installation_results = self.install_tools(tools)
-        
-        # Generate report
-        self.generate_install_report(installation_results)
-        
-        print("\n🎉 Installation process completed!")
+            # Install tools
+            installation_results = self.install_tools(tools)
+            
+            # Generate report
+            self.generate_install_report(installation_results)
+            
+            print("\n🎉 Installation process completed!")
+            
+        except Exception as e:
+            self.logger.error(f"Installation failed: {e}", exc_info=True)
+            print(f"\n❌ Fatal error: {e}")
+            sys.exit(1)
 
 def parse_arguments():
     """
-    Parse command-line arguments with comprehensive help information
+    Parse command-line arguments with comprehensive help information.
     
     Returns:
         argparse.Namespace: Parsed command-line arguments
@@ -427,8 +573,10 @@ def parse_arguments():
     
     return parser.parse_args()
 
-if __name__ == '__main__':
-    # Add startup message with ASCII art
+def main():
+    """
+    Main entry point for the BlackUtility installer.
+    """
     print("\n🔒 BlackUtility Cybersecurity Tool Installer 🔒")
     print("Preparing to enhance your security arsenal...\n")
     
@@ -454,7 +602,10 @@ if __name__ == '__main__':
         logging.error(f"Installation failed with error: {e}", exc_info=True)
         sys.exit(1)
 
+if __name__ == '__main__':
+    main()
+
 # Developer Metadata
 __author__ = "0xb0rn3"
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 __repository__ = "github.com/0xb0rn3/blackutility"
