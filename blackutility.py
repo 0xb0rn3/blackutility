@@ -419,7 +419,6 @@ class BlackUtility:
         except (subprocess.SubprocessError, subprocess.TimeoutExpired):
             return False
 
-class BlackUtility:
     def _verify_strap_content(self, strap_path: str) -> bool:
         """Verify basic strap script content validity."""
         try:
@@ -944,9 +943,13 @@ def parse_arguments() -> argparse.Namespace:
         epilog='Developed by 0xb0rn3 | Stay Ethical. Stay Secure.'
     )
     
+    # Create a temporary instance just to get categories
+    utility = BlackUtility()
+    categories = list(utility.tool_categories.keys())
+    
     parser.add_argument(
         '-c', '--category',
-        choices=['all'] + list(BlackUtility().tool_categories.keys())[1:],
+        choices=['all'] + [cat for cat in categories if cat != 'all'],
         default='all',
         help='Tool category to install (default: all)'
     )
