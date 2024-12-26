@@ -482,7 +482,6 @@ class BlackUtility:
         return f"{total_ram / (1024*1024*1024):.2f} GB"
 
     def main(self):
-        def main(self):
     """Main installation workflow with comprehensive error handling."""
     try:
         # Immediate root check
