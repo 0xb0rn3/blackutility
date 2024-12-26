@@ -602,3 +602,5 @@ def main():
 __author__ = "0xb0rn3"
 __version__ = "0.0.3"
 __repository__ = "github.com/0xb0rn3/blackutility"
+if __name__ == "__main__":
+    main()
