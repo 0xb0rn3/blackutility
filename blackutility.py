@@ -545,7 +545,7 @@ def parse_arguments():
     
     parser.add_argument(
         '-c', '--category',
-        choices=['all'] + list(BlackUtility().tool_categories.keys())[1:]
+        choices=['all'] + list(BlackUtility().tool_categories.keys())[1:],  # Missing comma was here
         default='all',
         help='Specify tool category to install (default: all)'
     )
