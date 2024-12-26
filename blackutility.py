@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import os
 import sys
 import subprocess
@@ -28,6 +27,7 @@ class BlackUtility:
     """
     
     def __init__(self, category: str = 'all', resume: bool = False, verbose: bool = False):
+        # Only show banner during main execution, not during class initialization
         self.banner = r"""
 ██████╗ ██╗      █████╗  ██████╗██╗  ██╗██╗   ██╗████████╗██╗██╗     
 ██╔══██╗██║     ██╔══██╗██╔════╝██║ ██╔╝██║   ██║╚══██╔══╝██║██║     
@@ -38,13 +38,12 @@ class BlackUtility:
                                                                       
     [Advanced Cybersecurity Arsenal for Arch]
     
-    Developer: 0xb0rn3
-    Repository: github.com/0xb0rn3/blackutility
+    Dev: 0xb0rn3 | Socials{IG}: @theehiv3
+    Repo: github.com/0xb0rn3/blackutility
+           Version: 0.0.3 BETA
     
     Stay Ethical. Stay Secure. Enjoy!
         """
-        
-        print(self.banner)
         
         # Enhanced logging configuration
         log_dir = '/var/log/blackutility'
@@ -69,6 +68,7 @@ class BlackUtility:
         self.completed_tools = []
         self.remaining_tools = []
         self.verbose = verbose
+        self.start_time = None
 
         # System requirements
         self.min_storage_required = 20 * 1024 * 1024 * 1024  # 20 GB
@@ -284,6 +284,7 @@ class BlackUtility:
             ))
             
             # Download strap script
+            self.logger.info("Downloading strap script...")
             response = session.get(strap_url, timeout=30)
             response.raise_for_status()
             
@@ -294,40 +295,64 @@ class BlackUtility:
             # Set permissions
             os.chmod(strap_path, 0o755)
             
-            # Verify checksum
-            sha1_calc = hashlib.sha1(response.content).hexdigest()
-            sha1_response = session.get(f"{strap_url}.sha1sum", timeout=30)
+            # Download and verify SHA1 checksum
+            sha1_url = f"{strap_url}.sha1sum"
+            self.logger.info("Downloading checksum file...")
+            sha1_response = session.get(sha1_url, timeout=30)
             sha1_response.raise_for_status()
-            sha1_official = sha1_response.text.strip().split()[0]
             
-            if sha1_calc != sha1_official:
+            # Extract expected checksum
+            expected_sha1 = sha1_response.text.strip().split()[0]
+            
+            # Calculate actual checksum
+            with open(strap_path, 'rb') as f:
+                actual_sha1 = hashlib.sha1(f.read()).hexdigest()
+            
+            if actual_sha1 != expected_sha1:
+                self.logger.error(f"Checksum mismatch. Expected: {expected_sha1}, Got: {actual_sha1}")
                 raise ValueError("Checksum verification failed")
                 
             self.logger.info("Strap script downloaded and verified successfully")
             return True
             
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Failed to download strap script: {e}")
+            return False
         except Exception as e:
-            self.logger.error(f"Strap script download/verification failed: {e}")
+            self.logger.error(f"Error during strap script verification: {e}")
             if os.path.exists(strap_path):
                 os.remove(strap_path)
             return False
 
     def install_strap(self) -> bool:
         """Install the BlackArch strap script."""
+        strap_path = "/tmp/strap.sh"
+        
+        if not os.path.exists(strap_path):
+            self.logger.error("Strap script not found")
+            return False
+            
         try:
+            self.logger.info("Installing strap script...")
             result = subprocess.run(
-                ['sudo', '/tmp/strap.sh'],
+                [strap_path],
                 check=True,
                 capture_output=True,
                 text=True,
                 timeout=self.timeout
             )
             
+            if "error" in result.stderr.lower() or "error" in result.stdout.lower():
+                raise subprocess.SubprocessError(f"Installation error: {result.stderr}")
+            
             self.logger.info("BlackArch strap installed successfully")
             return True
             
         except subprocess.SubprocessError as e:
             self.logger.error(f"Strap installation failed: {str(e)}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Unexpected error during strap installation: {str(e)}")
             return False
 
     def configure_blackarch(self) -> bool:
@@ -620,7 +645,7 @@ class BlackUtility:
         print(f"\n📝 Detailed report saved to: {report_file}")
         print("="*60 + "\n")
 
-    def main(self) -> int:
+  def main(self) -> int:
         """
         Main installation workflow.
         
@@ -628,6 +653,9 @@ class BlackUtility:
             int: Exit code (0 for success, 1 for failure)
         """
         self.start_time = time.time()
+        
+        # Display banner only during main execution
+        print(self.banner)
         
         try:
             # Check requirements
@@ -638,16 +666,19 @@ class BlackUtility:
                 return 1
 
             # Download and verify strap script
+            print("\n📥 Downloading and verifying strap script...")
             if not self.download_and_verify_strap():
                 print("❌ Failed to verify strap script")
                 return 1
 
             # Install strap script
+            print("\n🔧 Installing strap script...")
             if not self.install_strap():
                 print("❌ Failed to install strap script")
                 return 1
 
             # Configure BlackArch
+            print("\n⚙️ Configuring BlackArch...")
             if not self.configure_blackarch():
                 print("❌ Failed to configure BlackArch")
                 return 1
