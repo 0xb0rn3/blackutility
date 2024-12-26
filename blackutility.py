@@ -3,7 +3,7 @@ import os
 import sys
 import subprocess
 import logging
-from logging.handlers import RotatingFileHandler  # Add this import
+from logging.handlers import RotatingFileHandler
 import time
 import json
 import concurrent.futures
@@ -23,6 +23,21 @@ from urllib.parse import urlparse
 from tqdm import tqdm
 import requests
 
+class DownloadError(Exception):
+    """Custom exception for download-related errors.
+    
+    This exception is raised when there are issues during the download process,
+    such as network failures, invalid responses, or timeout issues.
+    """
+    pass
+
+class VerificationError(Exception):
+    """Custom exception for verification-related errors.
+    
+    This exception is raised when there are issues during the verification process,
+    such as checksum mismatches or suspicious content detection.
+    """
+    pass
 class BlackUtility:
     def __init__(self, category: str = 'all', resume: bool = False, verbose: bool = False):
         # Banner remains the same
@@ -404,6 +419,7 @@ class BlackUtility:
         except (subprocess.SubprocessError, subprocess.TimeoutExpired):
             return False
 
+class BlackUtility:
     def _verify_strap_content(self, strap_path: str) -> bool:
         """Verify basic strap script content validity."""
         try:
@@ -418,7 +434,8 @@ class BlackUtility:
             ]
             
             if not all(marker in content for marker in required_markers):
-                raise VerificationError("Invalid strap script content")
+                self.logger.warning("Missing required content markers in strap script")
+                return False
                 
             # Check for suspicious content
             suspicious_patterns = [
@@ -429,7 +446,8 @@ class BlackUtility:
             ]
             
             if any(pattern in content for pattern in suspicious_patterns):
-                raise VerificationError("Potentially malicious content detected")
+                self.logger.warning("Detected potentially malicious content in strap script")
+                return False
                 
             # Check file size constraints
             min_size = 1024  # 1 KB
@@ -437,7 +455,8 @@ class BlackUtility:
             
             file_size = os.path.getsize(strap_path)
             if not min_size <= file_size <= max_size:
-                raise VerificationError("Suspicious file size")
+                self.logger.warning(f"Suspicious file size: {file_size} bytes")
+                return False
                 
             return True
             
@@ -446,10 +465,7 @@ class BlackUtility:
             return False
 
     def _verify_strap_integrity(self, strap_url: str, strap_path: str) -> bool:
-        """
-        Verify strap script integrity using multiple methods.
-        Returns True if any verification method succeeds.
-        """
+        """Verify strap script integrity using multiple methods."""
         verification_methods = [
             self._verify_with_sha1sum,
             self._verify_with_gpg,
@@ -459,6 +475,7 @@ class BlackUtility:
         for method in verification_methods:
             try:
                 if method(strap_url, strap_path):
+                    self.logger.info(f"Verification successful using {method.__name__}")
                     return True
             except Exception as e:
                 self.logger.debug(f"Verification method {method.__name__} failed: {str(e)}")
