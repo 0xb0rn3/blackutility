@@ -86,44 +86,55 @@ class BlackUtility:
         # Set up signal handlers for graceful interruption
         signal.signal(signal.SIGINT, self.handle_interrupt)
         signal.signal(signal.SIGTERM, self.handle_interrupt)
-    def download_and_verify_strap(self) -> bool:
-        """Download and verify the BlackArch strap script"""
-        print("\n📥 Downloading BlackArch strap script...")
+def download_and_verify_strap(self) -> bool:
+    """Download and verify the BlackArch strap script"""
+    print("\n📥 Verifying BlackArch strap script...")
+    
+    strap_path = "./strap.sh"  # Look for strap.sh in current directory
+    
+    try:
+        # Check if strap.sh exists in current directory
+        if not os.path.exists(strap_path):
+            print("❌ strap.sh not found in current directory")
+            print("Please download it using: curl -O https://blackarch.org/strap.sh")
+            return False
+            
+        # Read the local file
+        with open(strap_path, "rb") as f:
+            content = f.read()
+            
+        # Verify SHA1 sum
+        sha1_calc = hashlib.sha1(content).hexdigest()
         
-        strap_url = "https://blackarch.org/strap.sh"
-        strap_path = "/tmp/strap.sh"
-        
+        # Get official SHA1 from BlackArch
         try:
-            # Download strap script
-            response = requests.get(strap_url, timeout=30)
-            response.raise_for_status()
-            
-            # Save the script
-            with open(strap_path, "wb") as f:
-                f.write(response.content)
-            
-            # Make executable
-            os.chmod(strap_path, 0o755)
-            
-            # Verify SHA1 sum
-            sha1_calc = hashlib.sha1(response.content).hexdigest()
-            
-            # Get official SHA1 from BlackArch
             sha1_response = requests.get("https://blackarch.org/strap.sh.sha1sum", timeout=30)
             sha1_response.raise_for_status()
             sha1_official = sha1_response.text.strip().split()[0]
             
             if sha1_calc == sha1_official:
-                print("✅ Strap script downloaded and verified successfully")
+                print("✅ Strap script verified successfully")
+                # Copy to /tmp for installation
+                shutil.copy2(strap_path, "/tmp/strap.sh")
+                os.chmod("/tmp/strap.sh", 0o755)
                 return True
             else:
                 print("❌ Strap script verification failed")
+                print("SHA1 mismatch:")
+                print(f"Expected: {sha1_official}")
+                print(f"Got:      {sha1_calc}")
                 return False
+        except requests.exceptions.RequestException as e:
+            print("⚠️ Could not fetch official SHA1 sum. Proceeding with caution...")
+            # If we can't verify, we'll trust the local file
+            shutil.copy2(strap_path, "/tmp/strap.sh")
+            os.chmod("/tmp/strap.sh", 0o755)
+            return True
                 
-        except Exception as e:
-            self.logger.error(f"Error downloading strap script: {e}")
-            print(f"❌ Failed to download strap script: {e}")
-            return False
+    except Exception as e:
+        self.logger.error(f"Error verifying strap script: {e}")
+        print(f"❌ Failed to verify strap script: {e}")
+        return False
 
     def install_strap(self) -> bool:
         """Install the BlackArch strap script"""
