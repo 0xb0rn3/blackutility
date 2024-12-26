@@ -598,10 +598,6 @@ def main():
         print(f"\n❌ Fatal error: {e}")
         logging.error(f"Installation failed with error: {e}", exc_info=True)
         sys.exit(1)
-        
-if __name__ == '__main__':
-    main()
-
 # Developer Metadata
 __author__ = "0xb0rn3"
 __version__ = "0.0.3"
