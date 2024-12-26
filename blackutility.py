@@ -193,19 +193,21 @@ class BlackUtility:
         return is_sufficient
 
     def handle_interrupt(self, signum, frame):
-        """Handle interruption signals gracefully and save state."""
-        self.logger.warning(f"Received interrupt signal {signum}")
-        try:
-            with open(self.state_file, 'wb') as f:
-                pickle.dump({
-                    'category': self.category,
-                    'completed_tools': self.completed_tools,
-                    'remaining_tools': self.remaining_tools
-                }, f)
-            print("\nInstallation paused. Use --resume to continue later.")
-        except Exception as e:
-            self.logger.error(f"Failed to save state: {e}")
-        sys.exit(0)
+    """Handle interruption signals gracefully and save state."""
+    self.logger.warning(f"Received interrupt signal {signum}")
+    try:
+        os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
+        with open(self.state_file, 'wb') as f:
+            pickle.dump({
+                'category': self.category,
+                'completed_tools': self.completed_tools,
+                'remaining_tools': self.remaining_tools
+            }, f)
+        print("\nInstallation paused. Use --resume to continue later.")
+    except Exception as e:
+        self.logger.error(f"Failed to save state: {e}")
+        print("\nWarning: Could not save installation state")
+    sys.exit(0)
 
     def download_and_verify_strap(self) -> bool:
         """Download and verify the BlackArch strap script."""
@@ -480,7 +482,13 @@ class BlackUtility:
         return f"{total_ram / (1024*1024*1024):.2f} GB"
 
     def main(self):
-        """Main installation workflow with comprehensive error handling."""
+        def main(self):
+    """Main installation workflow with comprehensive error handling."""
+    try:
+        # Immediate root check
+        if os.geteuid() != 0:
+            print("❌ This script must be run as root")
+            sys.exit(1)
         try:
             # Check all requirements first
             if not self.check_requirements():
@@ -538,7 +546,7 @@ def parse_arguments():
     
     parser.add_argument(
         '-c', '--category',
-        choices=['all'] + list(BlackUtility({}).tool_categories.keys())[1:],
+        choices=['all'] + list(BlackUtility().tool_categories.keys())[1:]
         default='all',
         help='Specify tool category to install (default: all)'
     )
