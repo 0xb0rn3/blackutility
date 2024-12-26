@@ -645,7 +645,7 @@ class BlackUtility:
         print(f"\n📝 Detailed report saved to: {report_file}")
         print("="*60 + "\n")
 
-  def main(self) -> int:
+    def main(self) -> int:
         """
         Main installation workflow.
         
