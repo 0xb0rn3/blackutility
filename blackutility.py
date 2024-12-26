@@ -87,49 +87,90 @@ class BlackUtility:
         signal.signal(signal.SIGINT, self.handle_interrupt)
         signal.signal(signal.SIGTERM, self.handle_interrupt)
 
-    def download_and_verify_strap(self) -> bool:
-        """
-        Download and verify the BlackArch strap script with SHA1 verification.
-        
-        Returns:
-            bool: True if download and verification successful, False otherwise
-        """
-        print("\n📥 Downloading BlackArch strap script...")
-        
-        strap_url = "https://blackarch.org/strap.sh"
-        strap_path = "/tmp/strap.sh"
-        
+ def download_and_verify_strap(self) -> bool:
+    """
+    Downloads and checks if the BlackArch installation script is safe to use
+    """
+    print("\n📥 Downloading BlackArch strap script...")
+    
+    # Multiple download sources
+    mirrors = [
+        "https://blackarch.org/strap.sh",
+        "https://raw.githubusercontent.com/BlackArch/blackarch-site/master/strap.sh",
+        "https://mirror.exactly.works/blackarch/strap.sh"
+    ]
+    
+    # Create a temporary folder to store our downloaded file
+    temp_dir = tempfile.mkdtemp(prefix='blackutility_')
+    strap_path = os.path.join(temp_dir, "strap.sh")
+    
+    # Try each download source until one works
+    for mirror in mirrors:
         try:
-            # Download the strap script
-            response = requests.get(strap_url, timeout=30)
+            # Set up a download session with proper identification
+            session = requests.Session()
+            session.headers.update({
+                'User-Agent': 'BlackUtility/0.0.3',
+                'Accept': '*/*'
+            })
+            
+            # Show which source we're trying
+            print(f"Trying to download from: {urlparse(mirror).netloc}")
+            
+            # Download the file with a progress bar
+            response = session.get(mirror, timeout=30, stream=True)
             response.raise_for_status()
+            total_size = int(response.headers.get('content-length', 0))
+            with open(strap_path, 'wb') as f, tqdm(
+                desc="Downloading",
+                total=total_size,
+                unit='iB',
+                unit_scale=True
+            ) as pbar:
+                for data in response.iter_content(chunk_size=1024):
+                    size = f.write(data)
+                    pbar.update(size)
+            # Calculate the unique fingerprint (SHA1) of our downloaded file
+            with open(strap_path, 'rb') as f:
+                sha1_calc = hashlib.sha1(f.read()).hexdigest()
             
-            # Save the script locally
-            with open(strap_path, "wb") as f:
-                f.write(response.content)
+            # Get the official fingerprint to compare with
+            sha1_mirrors = [f"{mirror}.sha1sum" for mirror in mirrors]
             
-            # Make the script executable
-            os.chmod(strap_path, 0o755)
+            # Try to get the official fingerprint from any available source
+            sha1_official = None
+            for sha1_mirror in sha1_mirrors:
+                try:
+                    sha1_response = session.get(sha1_mirror, timeout=30)
+                    sha1_response.raise_for_status()
+                    sha1_official = sha1_response.text.strip().split()[0]
+                    break
+                except requests.RequestException:
+                    continue
             
-            # Calculate SHA1 of downloaded file
-            sha1_calc = hashlib.sha1(response.content).hexdigest()
+            # If we couldn't get the official fingerprint, try another mirror
+            if not sha1_official:
+                continue
             
-            # Get official SHA1 from BlackArch
-            sha1_response = requests.get("https://blackarch.org/strap.sh.sha1sum", timeout=30)
-            sha1_response.raise_for_status()
-            sha1_official = sha1_response.text.strip().split()[0]
-            
+            # Check if our download matches the official file
             if sha1_calc == sha1_official:
                 print("✅ Strap script downloaded and verified successfully")
+                # Move file to its final location
+                final_path = '/tmp/strap.sh'
+                shutil.move(strap_path, final_path)
+                os.chmod(final_path, 0o755)  # Make the file executable
+                shutil.rmtree(temp_dir)  # Clean up our temporary folder
                 return True
-            else:
-                print("❌ Strap script verification failed")
-                return False
-                
-        except Exception as e:
-            self.logger.error(f"Error downloading strap script: {e}")
-            print(f"❌ Failed to download strap script: {e}")
-            return False
+            
+            print("❌ File verification failed, trying next download source...")
+            
+        except requests.RequestException as e:
+            self.logger.warning(f"This download source failed: {mirror}: {e}")
+            continue
+            
+    print("❌ All download attempts failed. Unable to get the installation script.")
+    shutil.rmtree(temp_dir)  # Clean up even if we failed
+    return False
 
     def install_strap(self) -> bool:
         """
@@ -151,7 +192,39 @@ class BlackUtility:
             self.logger.error(f"Strap installation failed: {e.stderr}")
             print(f"❌ Strap installation failed: {e.stderr}")
             return False
-
+    def verify_blackarch_installation(self) -> bool:
+    """
+    Makes sure BlackArch was installed correctly
+    """
+    try:
+        # Check if BlackArch is properly set up      
+        # Check if BlackArch is in the system's package manager configuration
+        with open('/etc/pacman.conf', 'r') as f:
+            if '[blackarch]' not in f.read():
+                return False
+        
+        # Verify that the security keys are installed
+        key_check = subprocess.run(
+            ['pacman-key', '-l'],
+            capture_output=True,
+            text=True
+        )
+        if 'BlackArch' not in key_check.stdout:
+            return False
+        
+        # Try to update the BlackArch package list
+        subprocess.run(
+            ['sudo', 'pacman', '-Sy', 'blackarch'],
+            check=True,
+            capture_output=True
+        )
+        
+        return True
+        
+    except Exception as e:
+        self.logger.error(f"Verification failed: {e}")
+        return False
+        
     def check_internet_connection(self) -> bool:
         """
         Check internet connectivity using multiple DNS servers.
