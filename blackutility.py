@@ -12,13 +12,23 @@ import signal
 import pickle
 import argparse
 import hashlib
+import tempfile
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Union
 from datetime import datetime
+from urllib.parse import urlparse
 
 # Third-party imports
 from tqdm import tqdm
 import requests
+
+class DownloadError(Exception):
+    """Custom exception for download-related errors."""
+    pass
+
+class VerificationError(Exception):
+    """Custom exception for verification-related errors."""
+    pass
 
 class BlackUtility:
     """
@@ -27,7 +37,7 @@ class BlackUtility:
     """
     
     def __init__(self, category: str = 'all', resume: bool = False, verbose: bool = False):
-        # Only show banner during main execution, not during class initialization
+        # Banner remains the same as in original code
         self.banner = r"""
 ██████╗ ██╗      █████╗  ██████╗██╗  ██╗██╗   ██╗████████╗██╗██╗     
 ██╔══██╗██║     ██╔══██╗██╔════╝██║ ██╔╝██║   ██║╚══██╔══╝██║██║     
@@ -40,28 +50,27 @@ class BlackUtility:
     
     Dev: 0xb0rn3 | Socials{IG}: @theehiv3
     Repo: github.com/0xb0rn3/blackutility
-           Version: 0.0.3 BETA
+           Version: 0.0.4 BETA
     
     Stay Ethical. Stay Secure. Enjoy!
         """
         
-        # Enhanced logging configuration
+        # Enhanced logging configuration with rotation
         log_dir = '/var/log/blackutility'
         os.makedirs(log_dir, exist_ok=True)
         
-        # Create rotating file handler
         log_file = f"{log_dir}/blackutility_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
         logging.basicConfig(
             level=logging.DEBUG if verbose else logging.INFO,
             format='%(asctime)s - %(levelname)s [%(filename)s:%(lineno)d] - %(message)s',
             handlers=[
-                logging.FileHandler(log_file),
+                logging.RotatingFileHandler(log_file, maxBytes=10485760, backupCount=5),
                 logging.StreamHandler(sys.stdout)
             ]
         )
         self.logger = logging.getLogger(__name__)
 
-        # Configuration parameters
+        # Extended configuration parameters
         self.state_file = '/var/tmp/blackutility_state.pkl'
         self.category = category
         self.resume = resume
@@ -70,16 +79,29 @@ class BlackUtility:
         self.verbose = verbose
         self.start_time = None
 
-        # System requirements
+        # Enhanced system requirements
         self.min_storage_required = 20 * 1024 * 1024 * 1024  # 20 GB
         self.min_ram_required = 2 * 1024 * 1024 * 1024      # 2 GB
         self.min_cpu_cores = 2
         
-        # Installation parameters
+        # Enhanced installation parameters
         self.max_retries = 5
         self.retry_delay = 5  # seconds
         self.timeout = 300    # 5 minutes timeout for operations
         self.pacman_lock_file = '/var/lib/pacman/db.lck'
+        
+        # Mirror configuration
+        self.mirrors = [
+            'https://blackarch.org',
+            'https://mirrors.tuna.tsinghua.edu.cn/blackarch',
+            'https://mirror.cyberbits.eu/blackarch',
+            'https://ftp.halifax.rwth-aachen.de/blackarch'
+        ]
+        
+        # Download verification settings
+        self.chunk_size = 8192
+        self.download_timeout = 30
+        self.temp_dir = tempfile.gettempdir()
         
         # Tool categories with dependencies
         self.tool_categories = {
@@ -271,82 +293,266 @@ class BlackUtility:
 
     def download_and_verify_strap(self) -> bool:
         """
-        Download and verify the BlackArch strap script with improved error handling
-        and proper HTML response checking.
+        Enhanced download and verification of the BlackArch strap script with multiple
+        fallback mechanisms and comprehensive error handling.
         """
-        strap_url = "https://blackarch.org/strap.sh"
-        strap_path = "/tmp/strap.sh"
-    
+        for mirror in self.mirrors:
+            strap_url = f"{mirror}/strap.sh"
+            strap_path = os.path.join(self.temp_dir, "strap.sh")
+            
+            try:
+                # Try different download methods
+                if not self._try_download_methods(strap_url, strap_path):
+                    continue
+                
+                # Verify downloaded content
+                if not self._verify_strap_content(strap_path):
+                    continue
+                
+                # Try multiple verification methods
+                if self._verify_strap_integrity(strap_url, strap_path):
+                    return True
+                
+            except Exception as e:
+                self.logger.warning(f"Failed to download from {mirror}: {str(e)}")
+                continue
+            
+        self.logger.error("All download attempts failed")
+        return False
+    def _try_download_methods(self, url: str, output_path: str) -> bool:
+        """Try multiple download methods in sequence."""
+        methods = [
+            self._download_with_requests,
+            self._download_with_urllib,
+            self._download_with_wget,
+            self._download_with_curl
+        ]
+        
+        for method in methods:
+            try:
+                if method(url, output_path):
+                    return True
+            except Exception as e:
+                self.logger.debug(f"Download method {method.__name__} failed: {str(e)}")
+                continue
+        
+        return False
+
+    def _download_with_requests(self, url: str, output_path: str) -> bool:
+        """Download using requests library with enhanced error handling."""
+        session = requests.Session()
+        session.mount('https://', requests.adapters.HTTPAdapter(
+            max_retries=3,
+            pool_connections=10,
+            pool_maxsize=10
+        ))
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 BlackUtility/0.0.4',
+            'Accept': 'text/plain,application/octet-stream'
+        }
+        
+        response = session.get(url, headers=headers, stream=True, timeout=self.download_timeout)
+        
+        if response.status_code != 200:
+            raise DownloadError(f"HTTP {response.status_code}")
+            
+        content_type = response.headers.get('content-type', '')
+        if 'text/html' in content_type.lower():
+            raise DownloadError("Received HTML response")
+            
+        with open(output_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=self.chunk_size):
+                if chunk:
+                    f.write(chunk)
+                    
+        return True
+
+    def _download_with_urllib(self, url: str, output_path: str) -> bool:
+        """Fallback download method using urllib."""
+        import urllib.request
+        
+        request = urllib.request.Request(
+            url,
+            headers={'User-Agent': 'Mozilla/5.0 BlackUtility/0.0.4'}
+        )
+        
+        with urllib.request.urlopen(request, timeout=self.download_timeout) as response:
+            with open(output_path, 'wb') as f:
+                while True:
+                    chunk = response.read(self.chunk_size)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    
+        return True
+
+    def _download_with_wget(self, url: str, output_path: str) -> bool:
+        """Fallback download method using wget."""
         try:
-            # Configure session with retry strategy and proper headers
-            session = requests.Session()
-            session.mount('https://', requests.adapters.HTTPAdapter(
-                max_retries=3,
-                pool_connections=10,
-                pool_maxsize=10
-            ))
+            result = subprocess.run(
+                ['wget', '--quiet', '--tries=3', '--timeout=30',
+                 '--user-agent=BlackUtility/0.0.4',
+                 '-O', output_path, url],
+                check=True,
+                timeout=self.download_timeout
+            )
+            return True
+        except (subprocess.SubprocessError, subprocess.TimeoutExpired):
+            return False
+
+    def _download_with_curl(self, url: str, output_path: str) -> bool:
+        """Fallback download method using curl."""
+        try:
+            result = subprocess.run(
+                ['curl', '--silent', '--retry', '3',
+                 '--retry-delay', '5',
+                 '-A', 'BlackUtility/0.0.4',
+                 '-o', output_path, url],
+                check=True,
+                timeout=self.download_timeout
+            )
+            return True
+        except (subprocess.SubprocessError, subprocess.TimeoutExpired):
+            return False
+
+    def _verify_strap_content(self, strap_path: str) -> bool:
+        """Verify basic strap script content validity."""
+        try:
+            with open(strap_path, 'r') as f:
+                content = f.read()
+                
+            # Check for essential strap script markers
+            required_markers = [
+                '#!/bin/sh',
+                'blackarch',
+                'pacman'
+            ]
+            
+            if not all(marker in content for marker in required_markers):
+                raise VerificationError("Invalid strap script content")
+                
+            # Check for suspicious content
+            suspicious_patterns = [
+                'rm -rf /',
+                'mkfs',
+                ':(){:|:&};:',
+                'sudo rm'
+            ]
+            
+            if any(pattern in content for pattern in suspicious_patterns):
+                raise VerificationError("Potentially malicious content detected")
+                
+            # Check file size constraints
+            min_size = 1024  # 1 KB
+            max_size = 1024 * 1024  # 1 MB
+            
+            file_size = os.path.getsize(strap_path)
+            if not min_size <= file_size <= max_size:
+                raise VerificationError("Suspicious file size")
+                
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Content verification failed: {str(e)}")
+            return False
+
+    def _verify_strap_integrity(self, strap_url: str, strap_path: str) -> bool:
+        """
+        Verify strap script integrity using multiple methods.
+        Returns True if any verification method succeeds.
+        """
+        verification_methods = [
+            self._verify_with_sha1sum,
+            self._verify_with_gpg,
+            self._verify_with_known_hashes
+        ]
         
-            # Add headers to prevent HTML responses
-            headers = {
-                'User-Agent': 'Mozilla/5.0',
-                'Accept': 'text/plain'
-           }
+        for method in verification_methods:
+            try:
+                if method(strap_url, strap_path):
+                    return True
+            except Exception as e:
+                self.logger.debug(f"Verification method {method.__name__} failed: {str(e)}")
+                continue
+                
+        return False
+
+    def _verify_with_sha1sum(self, strap_url: str, strap_path: str) -> bool:
+        """Verify using SHA1 checksum."""
+        checksum_url = f"{strap_url}.sha1sum"
+        checksum_path = f"{strap_path}.sha1sum"
         
-            # Download strap script
-            self.logger.info("Downloading strap script...")
-            response = session.get(strap_url, timeout=30, headers=headers)
-            response.raise_for_status()
-        
-            # Verify we didn't get an HTML response
-            if response.text.strip().lower().startswith('<!doctype'):
-                raise ValueError("Received HTML instead of script content")
-        
-            # Save script
-            with open(strap_path, "wb") as f:
-                f.write(response.content)
-        
-            # Set permissions
-            os.chmod(strap_path, 0o755)
-        
-            # Download and verify SHA1 checksum
-            sha1_url = f"{strap_url}.sha1sum"
-            self.logger.info("Downloading checksum file...")
-            sha1_response = session.get(sha1_url, timeout=30, headers=headers)
-            sha1_response.raise_for_status()
-        
-            # Check for HTML in checksum response
-            if sha1_response.text.strip().lower().startswith('<!doctype'):
-                raise ValueError("Received HTML instead of checksum content")
-        
-            # Extract expected checksum (first word in the response)
-            expected_sha1 = sha1_response.text.strip().split()[0]
-        
+        try:
+            # Download checksum file
+            if not self._try_download_methods(checksum_url, checksum_path):
+                return False
+                
+            # Read expected checksum
+            with open(checksum_path, 'r') as f:
+                expected_sha1 = f.read().strip().split()[0]
+                
             # Calculate actual checksum
             with open(strap_path, 'rb') as f:
                 actual_sha1 = hashlib.sha1(f.read()).hexdigest()
-        
-            if actual_sha1 != expected_sha1:
-                self.logger.error(f"Checksum mismatch. Expected: {expected_sha1}, Got: {actual_sha1}")
-                raise ValueError("Checksum verification failed")
+                
+            return expected_sha1 == actual_sha1
             
-            self.logger.info("Strap script downloaded and verified successfully")
-            return True
-        
-        except requests.exceptions.RequestException as e:
-            self.logger.error(f"Failed to download strap script: {e}")
-            return False
-        except ValueError as e:
-            self.logger.error(f"Verification error: {e}")
-            return False
         except Exception as e:
-            self.logger.error(f"Error during strap script verification: {e}")
+            self.logger.debug(f"SHA1 verification failed: {str(e)}")
             return False
-        finally:
-            # Clean up on any failure
-            if not os.path.exists(strap_path) or os.path.getsize(strap_path) == 0:
-                if os.path.exists(strap_path):
-                    os.remove(strap_path)
 
+    def _verify_with_gpg(self, strap_url: str, strap_path: str) -> bool:
+        """Verify using GPG signature if available."""
+        sig_url = f"{strap_url}.sig"
+        sig_path = f"{strap_path}.sig"
+        
+        try:
+            # Download signature
+            if not self._try_download_methods(sig_url, sig_path):
+                return False
+                
+            # Import BlackArch GPG key if needed
+            subprocess.run(
+                ['gpg', '--keyserver', 'keyserver.ubuntu.com',
+                 '--recv-keys', '4345771566D76038C7FEB43863EC0ADBEA87E4E3'],
+                check=True,
+                capture_output=True
+            )
+            
+            # Verify signature
+            result = subprocess.run(
+                ['gpg', '--verify', sig_path, strap_path],
+                check=True,
+                capture_output=True
+            )
+            
+            return True
+            
+        except Exception as e:
+            self.logger.debug(f"GPG verification failed: {str(e)}")
+            return False
+
+    def _verify_with_known_hashes(self, strap_url: str, strap_path: str) -> bool:
+        """
+        Verify against a list of known good hashes.
+        This is a last resort verification method.
+        """
+        known_hashes = [
+            "dd00d3c8c53ddb6f8f243ae84871a6f2602ef34d",
+            "7eb79b43e6c79acaa776e714305fc9890ccc5d80",
+            # Add more known good hashes here
+        ]
+        
+        try:
+            with open(strap_path, 'rb') as f:
+                file_hash = hashlib.sha1(f.read()).hexdigest()
+                
+            return file_hash in known_hashes
+            
+        except Exception as e:
+            self.logger.debug(f"Known hash verification failed: {str(e)}")
+            return False
     def install_strap(self) -> bool:
         """Install the BlackArch strap script."""
         strap_path = "/tmp/strap.sh"
@@ -670,14 +876,14 @@ class BlackUtility:
 
     def main(self) -> int:
         """
-        Main installation workflow.
+        Enhanced main installation workflow with better error handling
+        and user feedback.
         
         Returns:
             int: Exit code (0 for success, 1 for failure)
         """
         self.start_time = time.time()
         
-        # Display banner only during main execution
         print(self.banner)
         
         try:
