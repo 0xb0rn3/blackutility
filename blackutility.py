@@ -247,7 +247,44 @@ def download_and_verify_strap(self) -> bool:
             self.logger.error(f"Failed to save state: {e}")
         sys.exit(0)
 
-    def check_requirements(self) -> bool:
+    def main(self):
+        """
+        Main installation workflow with comprehensive error handling.
+        """
+        try:
+            # Check all requirements first
+            if not self.check_requirements():
+                print("❌ Requirements not met. Aborting installation.")
+                sys.exit(1)
+
+            # Add BlackArch repository
+            if not self.add_blackarch_repository():
+                print("❌ Failed to add BlackArch repository")
+                sys.exit(1)
+
+            # Get tools to install
+            print("\n📋 Preparing tool list...")
+            tools = self.get_tools_by_category(self.category)
+            if not tools:
+                print("❌ No tools found for the specified category")
+                sys.exit(1)
+
+            print(f"🔍 Found {len(tools)} tools to install in category '{self.category}'")
+            
+            # Install tools
+            installation_results = self.install_tools(tools)
+            
+            # Generate report
+            self.generate_install_report(installation_results)
+            
+            print("\n🎉 Installation process completed!")
+            
+        except Exception as e:
+            self.logger.error(f"Installation failed: {e}", exc_info=True)
+            print(f"\n❌ Fatal error: {e}")
+            sys.exit(1)
+
+    def check_requirements(self):
         """
         Comprehensive check of all requirements before proceeding with BlackArch installation.
         """
@@ -304,33 +341,8 @@ def download_and_verify_strap(self) -> bool:
         else:
             print("❌ Insufficient RAM (minimum 2GB required)")
             return False
-            
-        # Check if BlackArch strap exists and is valid
-        strap_path = '/usr/bin/blackarch-strap'
-        if not os.path.exists(strap_path):
-            print("ℹ️ BlackArch strap not found. Attempting to download and install...")
-            if self.download_and_verify_strap() and self.install_strap():
-                requirements_status['strap_exists'] = True
-                print("✅ BlackArch strap installed successfully")
-            else:
-                print("❌ Failed to install BlackArch strap")
-                return False
-        else:
-            requirements_status['strap_exists'] = True
-            print("✅ BlackArch strap is present")
-            
-        # Check pacman configuration
-        try:
-            subprocess.run(['pacman', '-Sy'], check=True, capture_output=True)
-            requirements_status['pacman_ready'] = True
-            print("✅ Pacman is properly configured")
-        except subprocess.CalledProcessError:
-            print("❌ Pacman is not properly configured")
-            return False
-            
-        # All requirements met
-        return all(requirements_status.values())
 
+        return all(requirements_status.values())
 
     def get_tools_by_category(self, category: str) -> List[str]:
         """
