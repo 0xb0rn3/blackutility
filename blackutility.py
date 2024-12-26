@@ -603,4 +603,25 @@ __author__ = "0xb0rn3"
 __version__ = "0.0.3"
 __repository__ = "github.com/0xb0rn3/blackutility"
 if __name__ == "__main__":
-    main()
+    try:
+        # Parse command-line arguments
+        args = parse_arguments()
+        
+        # Configure logging level based on verbose flag
+        if args.verbose:
+            logging.getLogger().setLevel(logging.DEBUG)
+        
+        # Create installer instance and run it
+        installer = BlackUtility(
+            category=args.category,
+            resume=args.resume
+        )
+        installer.main()  # Call the instance method
+        
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Installation interrupted by user")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n❌ Fatal error: {e}")
+        logging.error(f"Installation failed with error: {e}", exc_info=True)
+        sys.exit(1)
