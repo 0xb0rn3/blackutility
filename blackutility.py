@@ -482,54 +482,54 @@ class BlackUtility:
         return f"{total_ram / (1024*1024*1024):.2f} GB"
 
     def main(self):
-    """Main installation workflow with comprehensive error handling."""
-    try:
-        # Immediate root check
-        if os.geteuid() != 0:
-            print("❌ This script must be run as root")
-            sys.exit(1)
+        """Main installation workflow with comprehensive error handling."""
         try:
-            # Check all requirements first
-            if not self.check_requirements():
-                print("❌ Requirements not met. Aborting installation.")
+            # Immediate root check
+            if os.geteuid() != 0:
+                print("❌ This script must be run as root")
                 sys.exit(1)
+            try:
+                # Check all requirements first
+                if not self.check_requirements():
+                    print("❌ Requirements not met. Aborting installation.")
+                    sys.exit(1)
 
-            # Download and verify strap script
-            if not self.download_and_verify_strap():
-                print("❌ Failed to verify strap script")
-                sys.exit(1)
+                # Download and verify strap script
+                if not self.download_and_verify_strap():
+                    print("❌ Failed to verify strap script")
+                    sys.exit(1)
 
-            # Install strap script
-            if not self.install_strap():
-                print("❌ Failed to install strap script")
-                sys.exit(1)
+                # Install strap script
+                if not self.install_strap():
+                    print("❌ Failed to install strap script")
+                    sys.exit(1)
 
-            # Add BlackArch repository
-            if not self.add_blackarch_repository():
-                print("❌ Failed to add BlackArch repository")
-                sys.exit(1)
+                # Add BlackArch repository
+                if not self.add_blackarch_repository():
+                    print("❌ Failed to add BlackArch repository")
+                    sys.exit(1)
 
-            # Get tools to install
-            print("\n📋 Preparing tool list...")
-            tools = self.get_tools_by_category(self.category)
-            if not tools:
-                print("❌ No tools found for the specified category")
-                sys.exit(1)
+                # Get tools to install
+                print("\n📋 Preparing tool list...")
+                tools = self.get_tools_by_category(self.category)
+                if not tools:
+                    print("❌ No tools found for the specified category")
+                    sys.exit(1)
 
-            print(f"🔍 Found {len(tools)} tools to install in category '{self.category}'")
+                print(f"🔍 Found {len(tools)} tools to install in category '{self.category}'")
             
-            # Install tools
-            installation_results = self.install_tools(tools)
+                # Install tools
+                installation_results = self.install_tools(tools)
             
-            # Generate report
-            self.generate_install_report(installation_results)
+                # Generate report
+                self.generate_install_report(installation_results)
             
-            print("\n🎉 Installation process completed!")
+                print("\n🎉 Installation process completed!")
             
-        except Exception as e:
-            self.logger.error(f"Installation failed: {e}", exc_info=True)
-            print(f"\n❌ Fatal error: {e}")
-            sys.exit(1)
+            except Exception as e:
+                self.logger.error(f"Installation failed: {e}", exc_info=True)
+                print(f"\n❌ Fatal error: {e}")
+                sys.exit(1)
 
 def parse_arguments():
     """
