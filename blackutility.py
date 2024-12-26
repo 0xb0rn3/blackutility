@@ -22,6 +22,27 @@ from tqdm import tqdm  # For progress bars
 import requests       # For downloading files
 
 class BlackUtility:
+    def handle_interrupt(self, signum, frame):
+        """
+        Handle interruption signals gracefully and save state.
+        
+        Args:
+            signum: Signal number
+            frame: Current stack frame
+        """
+        self.logger.warning(f"Received interrupt signal {signum}")
+        try:
+            with open(self.state_file, 'wb') as f:
+                pickle.dump({
+                    'category': self.category,
+                    'completed_tools': self.completed_tools,
+                    'remaining_tools': self.remaining_tools
+                }, f)
+            print("\nInstallation paused. Use --resume to continue later.")
+        except Exception as e:
+            self.logger.error(f"Failed to save state: {e}")
+        sys.exit(0)
+
     def __init__(self, category: str = 'all', resume: bool = False):
         """
         Initialize the BlackUtility installer with comprehensive security tool management.
@@ -86,6 +107,7 @@ class BlackUtility:
         # Set up signal handlers for graceful interruption
         signal.signal(signal.SIGINT, self.handle_interrupt)
         signal.signal(signal.SIGTERM, self.handle_interrupt)
+
 def download_and_verify_strap(self) -> bool:
     """Download and verify the BlackArch strap script"""
     print("\n📥 Verifying BlackArch strap script...")
