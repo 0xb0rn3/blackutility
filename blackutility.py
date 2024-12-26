@@ -353,33 +353,33 @@ class BlackUtility:
         return results
 
     def _install_single_tool(self, tool: str) -> bool:
-        """Install a single tool with retry mechanism."""
-        if tool in self.completed_tools:
-            return True
+    """Install a single tool with retry mechanism."""
+    if tool in self.completed_tools:
+        return True
 
-        for attempt in range(self.max_retries):
-            try:
-                if not self.check_internet_connection():
-                    print(f"\n❌ Internet unstable. Retrying {tool}...")
-                    time.sleep(self.retry_delay)
-                    continue
-
-                subprocess.run(
-                    ['sudo', 'pacman', '-S', '--noconfirm', tool],
-                    check=True,
-                    capture_output=True,
-                    text=True
-                )
-                return True
-                
-           except subprocess.CalledProcessError as e:
-                self.logger.warning(f"Installation attempt {attempt + 1} failed for {tool}: {e.stderr}")
-                if attempt < self.max_retries - 1:
-                    time.sleep(self.retry_delay)
+    for attempt in range(self.max_retries):
+        try:
+            if not self.check_internet_connection():
+                print(f"\n❌ Internet unstable. Retrying {tool}...")
+                time.sleep(self.retry_delay)
                 continue
-        
-        self.logger.error(f"Failed to install {tool} after {self.max_retries} attempts")
-        return False
+
+            subprocess.run(
+                ['sudo', 'pacman', '-S', '--noconfirm', tool],
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            return True
+            
+        except subprocess.CalledProcessError as e:
+            self.logger.warning(f"Installation attempt {attempt + 1} failed for {tool}: {e.stderr}")
+            if attempt < self.max_retries - 1:
+                time.sleep(self.retry_delay)
+            continue
+    
+    self.logger.error(f"Failed to install {tool} after {self.max_retries} attempts")
+    return False
 
     def load_previous_state(self) -> Optional[Dict]:
         """
