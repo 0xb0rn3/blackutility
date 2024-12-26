@@ -86,99 +86,47 @@ class BlackUtility:
         # Set up signal handlers for graceful interruption
         signal.signal(signal.SIGINT, self.handle_interrupt)
         signal.signal(signal.SIGTERM, self.handle_interrupt)
-
-def download_and_verify_strap(self) -> bool:
-    """
-    Downloads and checks if the BlackArch installation script is safe to use
-    """
-    print("\n📥 Downloading BlackArch strap script...")
-    
-    # Multiple download sources
-    mirrors = [
-        "https://blackarch.org/strap.sh",
-        "https://raw.githubusercontent.com/BlackArch/blackarch-site/master/strap.sh",
-        "https://mirror.exactly.works/blackarch/strap.sh"
-    ]
-    
-    # Create a temporary folder to store our downloaded file
-    temp_dir = tempfile.mkdtemp(prefix='blackutility_')
-    strap_path = os.path.join(temp_dir, "strap.sh")
-    
-    # Try each download source until one works
-    for mirror in mirrors:
+    def download_and_verify_strap(self) -> bool:
+        """Download and verify the BlackArch strap script"""
+        print("\n📥 Downloading BlackArch strap script...")
+        
+        strap_url = "https://blackarch.org/strap.sh"
+        strap_path = "/tmp/strap.sh"
+        
         try:
-            # Set up a download session with proper identification
-            session = requests.Session()
-            session.headers.update({
-                'User-Agent': 'BlackUtility/0.0.3',
-                'Accept': '*/*'
-            })
-            
-            # Show which source we're trying
-            print(f"Trying to download from: {urlparse(mirror).netloc}")
-            
-            # Download the file with a progress bar
-            response = session.get(mirror, timeout=30, stream=True)
+            # Download strap script
+            response = requests.get(strap_url, timeout=30)
             response.raise_for_status()
-            total_size = int(response.headers.get('content-length', 0))
-            with open(strap_path, 'wb') as f, tqdm(
-                desc="Downloading",
-                total=total_size,
-                unit='iB',
-                unit_scale=True
-            ) as pbar:
-                for data in response.iter_content(chunk_size=1024):
-                    size = f.write(data)
-                    pbar.update(size)
-            # Calculate the unique fingerprint (SHA1) of our downloaded file
-            with open(strap_path, 'rb') as f:
-                sha1_calc = hashlib.sha1(f.read()).hexdigest()
             
-            # Get the official fingerprint to compare with
-            sha1_mirrors = [f"{mirror}.sha1sum" for mirror in mirrors]
+            # Save the script
+            with open(strap_path, "wb") as f:
+                f.write(response.content)
             
-            # Try to get the official fingerprint from any available source
-            sha1_official = None
-            for sha1_mirror in sha1_mirrors:
-                try:
-                    sha1_response = session.get(sha1_mirror, timeout=30)
-                    sha1_response.raise_for_status()
-                    sha1_official = sha1_response.text.strip().split()[0]
-                    break
-                except requests.RequestException:
-                    continue
+            # Make executable
+            os.chmod(strap_path, 0o755)
             
-            # If we couldn't get the official fingerprint, try another mirror
-            if not sha1_official:
-                continue
+            # Verify SHA1 sum
+            sha1_calc = hashlib.sha1(response.content).hexdigest()
             
-            # Check if our download matches the official file
+            # Get official SHA1 from BlackArch
+            sha1_response = requests.get("https://blackarch.org/strap.sh.sha1sum", timeout=30)
+            sha1_response.raise_for_status()
+            sha1_official = sha1_response.text.strip().split()[0]
+            
             if sha1_calc == sha1_official:
                 print("✅ Strap script downloaded and verified successfully")
-                # Move file to its final location
-                final_path = '/tmp/strap.sh'
-                shutil.move(strap_path, final_path)
-                os.chmod(final_path, 0o755)  # Make the file executable
-                shutil.rmtree(temp_dir)  # Clean up our temporary folder
                 return True
-            
-            print("❌ File verification failed, trying next download source...")
-            
-        except requests.RequestException as e:
-            self.logger.warning(f"This download source failed: {mirror}: {e}")
-            continue
-            
-    print("❌ All download attempts failed. Unable to get the installation script.")
-    shutil.rmtree(temp_dir)  # Clean up even if we failed
-    return False
+            else:
+                print("❌ Strap script verification failed")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Error downloading strap script: {e}")
+            print(f"❌ Failed to download strap script: {e}")
+            return False
 
     def install_strap(self) -> bool:
-        """
-        Install the BlackArch strap script.
-        
-        Returns:
-            bool: True if installation successful, False otherwise
-        """
+        """Install the BlackArch strap script"""
         try:
             result = subprocess.run(
                 ['sudo', '/tmp/strap.sh'],
@@ -192,39 +140,7 @@ def download_and_verify_strap(self) -> bool:
             self.logger.error(f"Strap installation failed: {e.stderr}")
             print(f"❌ Strap installation failed: {e.stderr}")
             return False
-    def verify_blackarch_installation(self) -> bool:
-    """
-    Makes sure BlackArch was installed correctly
-    """
-    try:
-        # Check if BlackArch is properly set up      
-        # Check if BlackArch is in the system's package manager configuration
-        with open('/etc/pacman.conf', 'r') as f:
-            if '[blackarch]' not in f.read():
-                return False
-        
-        # Verify that the security keys are installed
-        key_check = subprocess.run(
-            ['pacman-key', '-l'],
-            capture_output=True,
-            text=True
-        )
-        if 'BlackArch' not in key_check.stdout:
-            return False
-        
-        # Try to update the BlackArch package list
-        subprocess.run(
-            ['sudo', 'pacman', '-Sy', 'blackarch'],
-            check=True,
-            capture_output=True
-        )
-        
-        return True
-        
-    except Exception as e:
-        self.logger.error(f"Verification failed: {e}")
-        return False
-        
+
     def check_internet_connection(self) -> bool:
         """
         Check internet connectivity using multiple DNS servers.
@@ -300,10 +216,7 @@ def download_and_verify_strap(self) -> bool:
 
     def check_requirements(self) -> bool:
         """
-        Comprehensive check of all system requirements.
-        
-        Returns:
-            bool: True if all requirements met, False otherwise
+        Comprehensive check of all requirements before proceeding with BlackArch installation.
         """
         requirements_status = {
             'root_access': False,
@@ -382,7 +295,9 @@ def download_and_verify_strap(self) -> bool:
             print("❌ Pacman is not properly configured")
             return False
             
+        # All requirements met
         return all(requirements_status.values())
+
 
     def get_tools_by_category(self, category: str) -> List[str]:
         """
@@ -576,40 +491,31 @@ def download_and_verify_strap(self) -> bool:
 
     def main(self):
         """
-        Main installation workflow with comprehensive error handling.
+        Main installation workflow with comprehensive requirement checking
         """
-        try:
-            # Check all requirements first
-            if not self.check_requirements():
-                print("❌ Requirements not met. Aborting installation.")
-                sys.exit(1)
-
-            # Add BlackArch repository
-            if not self.add_blackarch_repository():
-                print("❌ Failed to add BlackArch repository")
-                sys.exit(1)
-
-            # Get tools to install
-            print("\n📋 Preparing tool list...")
-            tools = self.get_tools_by_category(self.category)
-            if not tools:
-                print("❌ No tools found for the specified category")
-                sys.exit(1)
-
-            print(f"🔍 Found {len(tools)} tools to install in category '{self.category}'")
-            
-            # Install tools
-            installation_results = self.install_tools(tools)
-            
-            # Generate report
-            self.generate_install_report(installation_results)
-            
-            print("\n🎉 Installation process completed!")
-            
-        except Exception as e:
-            self.logger.error(f"Installation failed: {e}", exc_info=True)
-            print(f"\n❌ Fatal error: {e}")
+        # Check all requirements first
+        if not self.check_requirements():
+            print("❌ Requirements not met. Aborting installation.")
             sys.exit(1)
+            
+        # Add BlackArch repository
+        if not self.add_blackarch_repository():
+            print("❌ Failed to add BlackArch repository")
+            sys.exit(1)
+
+        # Get tools to install
+        tools = self.get_tools_by_category(self.category)
+        if not tools:
+            print("❌ No tools found for the specified category")
+            sys.exit(1)
+            
+        # Install tools
+        installation_results = self.install_tools(tools)
+        
+        # Generate report
+        self.generate_install_report(installation_results)
+        
+        print("\n🎉 Installation process completed!")
 
 def parse_arguments():
     """
@@ -646,21 +552,16 @@ def parse_arguments():
     
     return parser.parse_args()
 
-def main():
-    """
-    Main entry point for the BlackUtility installer.
-    """
+
+if __name__ == '__main__':
     print("\n🔒 BlackUtility Cybersecurity Tool Installer 🔒")
-    print("Preparing to enhance your security arsenal...\n")
+    print("Preparing to enhance your Hacking-Tools arsenal...\n")
     
-    # Parse command-line arguments
     args = parse_arguments()
     
-    # Configure logging level based on verbose flag
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
-    # Create and run installer
     try:
         installer = BlackUtility(
             category=args.category,
@@ -674,9 +575,6 @@ def main():
         print(f"\n❌ Fatal error: {e}")
         logging.error(f"Installation failed with error: {e}", exc_info=True)
         sys.exit(1)
-
-if __name__ == '__main__':
-    main()
 
 # Developer Metadata
 __author__ = "0xb0rn3"
