@@ -270,59 +270,82 @@ class BlackUtility:
         return not os.path.exists(self.pacman_lock_file)
 
     def download_and_verify_strap(self) -> bool:
-        """Download and verify the BlackArch strap script."""
+        """
+        Download and verify the BlackArch strap script with improved error handling
+        and proper HTML response checking.
+        """
         strap_url = "https://blackarch.org/strap.sh"
         strap_path = "/tmp/strap.sh"
-        
+    
         try:
-            # Configure session with retry strategy
+            # Configure session with retry strategy and proper headers
             session = requests.Session()
             session.mount('https://', requests.adapters.HTTPAdapter(
                 max_retries=3,
                 pool_connections=10,
                 pool_maxsize=10
             ))
-            
+        
+            # Add headers to prevent HTML responses
+            headers = {
+                'User-Agent': 'Mozilla/5.0',
+                'Accept': 'text/plain'
+           }
+        
             # Download strap script
             self.logger.info("Downloading strap script...")
-            response = session.get(strap_url, timeout=30)
+            response = session.get(strap_url, timeout=30, headers=headers)
             response.raise_for_status()
-            
+        
+            # Verify we didn't get an HTML response
+            if response.text.strip().lower().startswith('<!doctype'):
+                raise ValueError("Received HTML instead of script content")
+        
             # Save script
             with open(strap_path, "wb") as f:
                 f.write(response.content)
-            
+        
             # Set permissions
             os.chmod(strap_path, 0o755)
-            
+        
             # Download and verify SHA1 checksum
             sha1_url = f"{strap_url}.sha1sum"
             self.logger.info("Downloading checksum file...")
-            sha1_response = session.get(sha1_url, timeout=30)
+            sha1_response = session.get(sha1_url, timeout=30, headers=headers)
             sha1_response.raise_for_status()
-            
-            # Extract expected checksum
+        
+            # Check for HTML in checksum response
+            if sha1_response.text.strip().lower().startswith('<!doctype'):
+                raise ValueError("Received HTML instead of checksum content")
+        
+            # Extract expected checksum (first word in the response)
             expected_sha1 = sha1_response.text.strip().split()[0]
-            
+        
             # Calculate actual checksum
             with open(strap_path, 'rb') as f:
                 actual_sha1 = hashlib.sha1(f.read()).hexdigest()
-            
+        
             if actual_sha1 != expected_sha1:
                 self.logger.error(f"Checksum mismatch. Expected: {expected_sha1}, Got: {actual_sha1}")
                 raise ValueError("Checksum verification failed")
-                
+            
             self.logger.info("Strap script downloaded and verified successfully")
             return True
-            
+        
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to download strap script: {e}")
             return False
+        except ValueError as e:
+            self.logger.error(f"Verification error: {e}")
+            return False
         except Exception as e:
             self.logger.error(f"Error during strap script verification: {e}")
-            if os.path.exists(strap_path):
-                os.remove(strap_path)
             return False
+        finally:
+            # Clean up on any failure
+            if not os.path.exists(strap_path) or os.path.getsize(strap_path) == 0:
+                if os.path.exists(strap_path):
+                    os.remove(strap_path)
 
     def install_strap(self) -> bool:
         """Install the BlackArch strap script."""
