@@ -491,31 +491,40 @@ class BlackUtility:
 
     def main(self):
         """
-        Main installation workflow with comprehensive requirement checking
+        Main installation workflow with comprehensive error handling.
         """
-        # Check all requirements first
-        if not self.check_requirements():
-            print("❌ Requirements not met. Aborting installation.")
-            sys.exit(1)
-            
-        # Add BlackArch repository
-        if not self.add_blackarch_repository():
-            print("❌ Failed to add BlackArch repository")
-            sys.exit(1)
+        try:
+            # Check all requirements first
+            if not self.check_requirements():
+                print("❌ Requirements not met. Aborting installation.")
+                sys.exit(1)
 
-        # Get tools to install
-        tools = self.get_tools_by_category(self.category)
-        if not tools:
-            print("❌ No tools found for the specified category")
-            sys.exit(1)
+            # Add BlackArch repository
+            if not self.add_blackarch_repository():
+                print("❌ Failed to add BlackArch repository")
+                sys.exit(1)
+
+            # Get tools to install
+            print("\n📋 Preparing tool list...")
+            tools = self.get_tools_by_category(self.category)
+            if not tools:
+                print("❌ No tools found for the specified category")
+                sys.exit(1)
+
+            print(f"🔍 Found {len(tools)} tools to install in category '{self.category}'")
             
-        # Install tools
-        installation_results = self.install_tools(tools)
-        
-        # Generate report
-        self.generate_install_report(installation_results)
-        
-        print("\n🎉 Installation process completed!")
+            # Install tools
+            installation_results = self.install_tools(tools)
+            
+            # Generate report
+            self.generate_install_report(installation_results)
+            
+            print("\n🎉 Installation process completed!")
+            
+        except Exception as e:
+            self.logger.error(f"Installation failed: {e}", exc_info=True)
+            print(f"\n❌ Fatal error: {e}")
+            sys.exit(1)
 
 def parse_arguments():
     """
@@ -553,15 +562,21 @@ def parse_arguments():
     return parser.parse_args()
 
 
-if __name__ == '__main__':
+def main():
+    """
+    Main entry point for the BlackUtility installer.
+    """
     print("\n🔒 BlackUtility Cybersecurity Tool Installer 🔒")
-    print("Preparing to enhance your Hacking-Tools arsenal...\n")
+    print("Preparing to enhance your security arsenal...\n")
     
+    # Parse command-line arguments
     args = parse_arguments()
     
+    # Configure logging level based on verbose flag
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
+    # Create and run installer
     try:
         installer = BlackUtility(
             category=args.category,
@@ -576,7 +591,10 @@ if __name__ == '__main__':
         logging.error(f"Installation failed with error: {e}", exc_info=True)
         sys.exit(1)
 
+if __name__ == '__main__':
+    main()
+
 # Developer Metadata
 __author__ = "0xb0rn3"
 __version__ = "0.0.3"
-__repository__ = "github.com/0xb0rn3/blackutility"
+__repository__ = "github.com/0xb0rn3/blackutility
