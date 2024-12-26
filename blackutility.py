@@ -55,8 +55,7 @@ class BlackArchInstaller:
         
         # Known good SHA256 hashes of strap.sh (update these regularly)
         self.KNOWN_GOOD_HASHES = [
-            "a1bce8278d5f0132c45d7f0a82e4293d8b361e640dfb197ed06c846d85787857",
-            "f7b3f96c597d987111d3910ed86c224e03ee07f2c814a42046b56c82f856cc95"
+            "8eccac81b4e967c9140923f66b13cfb1f318879df06e3f8e35c913d3c8e070a5"
         ]
         
         # GPG key for BlackArch verification
