@@ -3,6 +3,7 @@ import os
 import sys
 import subprocess
 import logging
+from logging.handlers import RotatingFileHandler  # Add this import
 import time
 import json
 import concurrent.futures
@@ -22,22 +23,9 @@ from urllib.parse import urlparse
 from tqdm import tqdm
 import requests
 
-class DownloadError(Exception):
-    """Custom exception for download-related errors."""
-    pass
-
-class VerificationError(Exception):
-    """Custom exception for verification-related errors."""
-    pass
-
 class BlackUtility:
-    """
-    Advanced cybersecurity tool management system for Arch Linux.
-    Handles installation, verification, and management of BlackArch tools.
-    """
-    
     def __init__(self, category: str = 'all', resume: bool = False, verbose: bool = False):
-        # Banner remains the same as in original code
+        # Banner remains the same
         self.banner = r"""
 ██████╗ ██╗      █████╗  ██████╗██╗  ██╗██╗   ██╗████████╗██╗██╗     
 ██╔══██╗██║     ██╔══██╗██╔════╝██║ ██╔╝██║   ██║╚══██╔══╝██║██║     
@@ -64,7 +52,7 @@ class BlackUtility:
             level=logging.DEBUG if verbose else logging.INFO,
             format='%(asctime)s - %(levelname)s [%(filename)s:%(lineno)d] - %(message)s',
             handlers=[
-                logging.RotatingFileHandler(log_file, maxBytes=10485760, backupCount=5),
+                RotatingFileHandler(log_file, maxBytes=10485760, backupCount=5),
                 logging.StreamHandler(sys.stdout)
             ]
         )
