@@ -50,7 +50,7 @@ class BlackUtility:
     
     Dev: 0xb0rn3 | Socials{IG}: @theehiv3
     Repo: github.com/0xb0rn3/blackutility
-           Version: 0.0.4 BETA
+           Version: 0.0.2 BETA
     
     Stay Ethical. Stay Secure. Enjoy!
         """
