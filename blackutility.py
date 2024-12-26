@@ -534,7 +534,7 @@ class BlackUtility:
 def parse_arguments():
     """
     Parse command-line arguments with comprehensive help information.
-    
+
     Returns:
         argparse.Namespace: Parsed command-line arguments
     """
@@ -542,26 +542,26 @@ def parse_arguments():
         description='BlackUtility - Advanced Cybersecurity Tool Management System',
         epilog='Developed by 0xb0rn3 | Secure Your Arsenal'
     )
-    
+
     parser.add_argument(
         '-c', '--category',
-        choices=['all'] + list(BlackUtility().tool_categories.keys())[1:],  # Missing comma was here
+        choices=['all'] + list(BlackUtility().tool_categories.keys())[1:],  # Corrected line
         default='all',
         help='Specify tool category to install (default: all)'
     )
-    
+
     parser.add_argument(
         '-r', '--resume',
         action='store_true',
         help='Resume a previously interrupted installation'
     )
-    
+
     parser.add_argument(
         '-v', '--verbose',
         action='store_true',
         help='Enable verbose output for debugging'
     )
-    
+
     return parser.parse_args()
 
 if __name__ == "__main__":
