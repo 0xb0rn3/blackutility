@@ -87,7 +87,7 @@ class BlackUtility:
         signal.signal(signal.SIGINT, self.handle_interrupt)
         signal.signal(signal.SIGTERM, self.handle_interrupt)
 
- def download_and_verify_strap(self) -> bool:
+def download_and_verify_strap(self) -> bool:
     """
     Downloads and checks if the BlackArch installation script is safe to use
     """
