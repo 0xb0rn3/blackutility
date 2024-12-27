@@ -236,42 +236,61 @@ Version: 1.0.0 STABLE
     async def verify_strap_signature(self, strap_path: Path) -> bool:
         """
         Verify the strap.sh signature using GnuPG for additional security.
-        Downloads and verifies the signature file from the official source.
+        Uses the official BlackArch signing key for verification.
         """
         try:
+            # The actual BlackArch signing key
+            BLACKARCH_SIGNING_KEY = "4345771566D76038C7FEB43863EC0ADBEA87E4E3"
+            
             # Download the signature file
             sig_url = f"{self.config['official_strap_url']}.sig"
             sig_path = strap_path.with_suffix('.sh.sig')
             
+            self.logger.info("Downloading signature file...")
             async with self.session.get(sig_url) as response:
                 if response.status != 200:
-                    self.logger.error("Failed to download signature file")
+                    self.logger.error(f"Failed to download signature file: Status {response.status}")
                     return False
                     
                 sig_content = await response.read()
                 sig_path.write_bytes(sig_content)
             
-            # Import BlackArch key
+            # Import BlackArch signing key
+            self.logger.info("Importing BlackArch signing key...")
             import_cmd = await asyncio.create_subprocess_exec(
-                'gpg', '--keyserver', self.config['blackarch_keyserver'],
-                '--recv-keys', self.config['official_sha1'],
+                'gpg',
+                '--keyserver', self.config['blackarch_keyserver'],
+                '--recv-keys', BLACKARCH_SIGNING_KEY,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            await import_cmd.communicate()
+            
+            stdout, stderr = await import_cmd.communicate()
+            if import_cmd.returncode != 0:
+                self.logger.error(f"Failed to import key: {stderr.decode()}")
+                return False
             
             # Verify signature
+            self.logger.info("Verifying signature...")
             verify_cmd = await asyncio.create_subprocess_exec(
-                'gpg', '--verify', str(sig_path), str(strap_path),
+                'gpg',
+                '--verify',
+                str(sig_path),
+                str(strap_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             
-            _, stderr = await verify_cmd.communicate()
-            return verify_cmd.returncode == 0
+            stdout, stderr = await verify_cmd.communicate()
+            if verify_cmd.returncode == 0:
+                self.logger.info("Signature verification successful")
+                return True
+            else:
+                self.logger.error(f"Signature verification failed: {stderr.decode()}")
+                return False
             
         except Exception as e:
-            self.logger.error(f"Signature verification failed: {str(e)}")
+            self.logger.error(f"Signature verification failed: {str(e)}", exc_info=True)
             return False
 
     async def install(self) -> bool:
