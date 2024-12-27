@@ -73,7 +73,7 @@ Version: 1.0.0 BETA
             'connection_timeout': 30,
             'official_strap_url': "https://blackarch.org/strap.sh",  # Official BlackArch strap URL
             'blackarch_keyserver': "hkps://keyserver.ubuntu.com",
-            'blackarch_key': "4345771566D76038C7FEB43863EC0ADBEA87E4E3",
+            'blackarch_key': "bbf0a0b838aed0ec05fff2d375dd17591cbdf8aa",
             'known_hashes': []  # We'll verify against the official source
         }
 
