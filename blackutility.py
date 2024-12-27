@@ -235,30 +235,58 @@ Version: 1.0.0 STABLE
 
     async def verify_strap_signature(self, strap_path: Path) -> bool:
         """
-        Verify the strap.sh signature using GnuPG for additional security.
-        Uses the official BlackArch signing key for verification.
+        Verify the strap.sh signature using GnuPG with enhanced error checking and validation.
+        Implements a more robust signature verification process with proper key handling.
         """
         try:
-            # The actual BlackArch signing key
+            # BlackArch maintainer's signing key
             BLACKARCH_SIGNING_KEY = "4345771566D76038C7FEB43863EC0ADBEA87E4E3"
             
-            # Download the signature file
+            # First ensure we have a clean GPG environment
+            gpg_home = Path(tempfile.mkdtemp())
+            os.environ['GNUPGHOME'] = str(gpg_home)
+            
+            # Download the signature file with explicit verification
             sig_url = f"{self.config['official_strap_url']}.sig"
             sig_path = strap_path.with_suffix('.sh.sig')
             
-            self.logger.info("Downloading signature file...")
+            self.logger.info(f"Downloading signature file from {sig_url}")
             async with self.session.get(sig_url) as response:
                 if response.status != 200:
                     self.logger.error(f"Failed to download signature file: Status {response.status}")
                     return False
-                    
+                
                 sig_content = await response.read()
+                if not sig_content:
+                    self.logger.error("Downloaded signature file is empty")
+                    return False
+                
+                # Write signature file with explicit verification
                 sig_path.write_bytes(sig_content)
+                if not sig_path.exists() or sig_path.stat().st_size == 0:
+                    self.logger.error("Signature file not written correctly")
+                    return False
+                
+                self.logger.info(f"Signature file saved to {sig_path}")
             
-            # Import BlackArch signing key
+            # Initialize new GPG home directory
+            init_cmd = await asyncio.create_subprocess_exec(
+                'gpg',
+                '--batch',
+                '--no-tty',
+                '--yes',
+                '--list-keys',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await init_cmd.communicate()
+            
+            # Import the BlackArch signing key with verification
             self.logger.info("Importing BlackArch signing key...")
             import_cmd = await asyncio.create_subprocess_exec(
                 'gpg',
+                '--batch',
+                '--no-tty',
                 '--keyserver', self.config['blackarch_keyserver'],
                 '--recv-keys', BLACKARCH_SIGNING_KEY,
                 stdout=asyncio.subprocess.PIPE,
@@ -270,10 +298,27 @@ Version: 1.0.0 STABLE
                 self.logger.error(f"Failed to import key: {stderr.decode()}")
                 return False
             
-            # Verify signature
+            # Verify the key was imported correctly
+            verify_key_cmd = await asyncio.create_subprocess_exec(
+                'gpg',
+                '--batch',
+                '--no-tty',
+                '--list-keys', BLACKARCH_SIGNING_KEY,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await verify_key_cmd.communicate()
+            if verify_key_cmd.returncode != 0:
+                self.logger.error("Failed to verify key import")
+                return False
+            
+            # Verify the signature with detailed output
             self.logger.info("Verifying signature...")
             verify_cmd = await asyncio.create_subprocess_exec(
                 'gpg',
+                '--batch',
+                '--no-tty',
                 '--verify',
                 str(sig_path),
                 str(strap_path),
@@ -282,16 +327,24 @@ Version: 1.0.0 STABLE
             )
             
             stdout, stderr = await verify_cmd.communicate()
+            verification_output = stderr.decode()
+            
             if verify_cmd.returncode == 0:
                 self.logger.info("Signature verification successful")
                 return True
             else:
-                self.logger.error(f"Signature verification failed: {stderr.decode()}")
+                self.logger.error(f"Signature verification failed with output:\n{verification_output}")
                 return False
             
         except Exception as e:
-            self.logger.error(f"Signature verification failed: {str(e)}", exc_info=True)
+            self.logger.error(f"Signature verification failed with exception: {str(e)}", exc_info=True)
             return False
+            
+        finally:
+            # Clean up the temporary GPG home
+            if 'gpg_home' in locals():
+                import shutil
+                shutil.rmtree(str(gpg_home), ignore_errors=True)
 
     async def install(self) -> bool:
         """
