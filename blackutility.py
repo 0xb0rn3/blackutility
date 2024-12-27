@@ -1,3 +1,4 @@
+#!/usr/bin/env python3 
 import os
 import sys
 import asyncio
@@ -35,7 +36,7 @@ class BlackArchUtility:
 
 Dev: 0xb0rn3 | Socials{IG}: @theehiv3
 Repo: github.com/0xb0rn3/blackutility
-Version: 1.0.0 STABLE
+Version: 1.0.1 STABLE
 
 [green]Stay Ethical. Stay Secure. Enjoy![/green]
 '''
@@ -68,7 +69,6 @@ Version: 1.0.0 STABLE
     def _create_status_table(self) -> Table:
         """
         Create a status table for real-time system and network information display.
-        Provides visual feedback about ongoing operations.
         """
         table = Table(show_header=True, header_style="bold magenta")
         table.add_column("Component", style="cyan")
@@ -79,7 +79,6 @@ Version: 1.0.0 STABLE
     def _load_config(self) -> Dict[str, Any]:
         """
         Load configuration with security-focused settings and official URLs.
-        Combines network optimization with strict security parameters.
         """
         return {
             'chunk_size': 1024 * 1024,  # 1MB chunks for optimal network usage
@@ -91,13 +90,13 @@ Version: 1.0.0 STABLE
             'blackarch_keyserver': "hkps://keyserver.ubuntu.com",
             'official_sha1': "bbf0a0b838aed0ec05fff2d375dd17591cbdf8aa",
             'verify_ssl': True,
-            'dns_cache_ttl': 300
+            'dns_cache_ttl': 300,
+            'temp_dir': None  # Will be set during runtime
         }
 
     def setup_logging(self):
         """
         Configure comprehensive logging system for security audit and debugging.
-        Implements both console and file logging with rotating handlers.
         """
         log_dir = Path("/var/log/blackutility")
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -105,7 +104,7 @@ Version: 1.0.0 STABLE
         self.logger = logging.getLogger("BlackArchUtility")
         self.logger.setLevel(logging.DEBUG)
         
-        # Console handler for immediate feedback
+        # Console handler with improved formatting
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.INFO)
         console_handler.setFormatter(
@@ -113,7 +112,7 @@ Version: 1.0.0 STABLE
         )
         self.logger.addHandler(console_handler)
         
-        # File handler for detailed logging and audit
+        # File handler with detailed logging
         file_handler = RotatingFileHandler(
             log_dir / f"blackutility_{datetime.now():%Y%m%d}.log",
             maxBytes=10*1024*1024,
@@ -127,7 +126,6 @@ Version: 1.0.0 STABLE
     async def create_session(self):
         """
         Create an optimized aiohttp session with enhanced security features.
-        Implements connection pooling and SSL verification.
         """
         conn = aiohttp.TCPConnector(
             limit=self.config['max_concurrent_downloads'],
@@ -140,7 +138,7 @@ Version: 1.0.0 STABLE
             connector=conn,
             timeout=aiohttp.ClientTimeout(total=self.config['connection_timeout']),
             headers={
-                'User-Agent': 'BlackArchUtility/1.0.0',
+                'User-Agent': 'BlackArchUtility/1.0.1',
                 'Accept': '*/*'
             }
         )
@@ -156,7 +154,6 @@ Version: 1.0.0 STABLE
                                  progress: Progress) -> bool:
         """
         Download file with resume capability and enhanced error handling.
-        Implements chunk-based downloading with SHA1 verification.
         """
         file_id = hashlib.md5(url.encode()).hexdigest()
         chunk_size = self.config['chunk_size']
@@ -192,13 +189,22 @@ Version: 1.0.0 STABLE
                         )
                     
                     total = int(response.headers.get('Content-Length', 0))
-                    progress.update(task_id, total=total + start_byte)
+                    if total == 0:
+                        self.logger.warning("Content-Length header missing")
+                    else:
+                        progress.update(task_id, total=total + start_byte)
                     
                     async for chunk in response.content.iter_chunked(chunk_size):
                         chunks.append(chunk)
                         progress.update(task_id, advance=len(chunk))
                         
                     final_content = b''.join(chunks)
+                    
+                    # Verify the content is not empty
+                    if len(final_content) == 0:
+                        self.logger.error("Downloaded content is empty")
+                        return False
+                        
                     dest_path.write_bytes(final_content)
                     
                     self.logger.info(f"Successfully downloaded {len(final_content)} bytes")
@@ -217,36 +223,39 @@ Version: 1.0.0 STABLE
     def verify_sha1(self, file_path: Path) -> bool:
         """
         Verify the SHA1 hash of the downloaded file against the official hash.
-        Implements the same verification method as official instructions.
         """
         sha1_hash = hashlib.sha1()
         
-        with open(file_path, 'rb') as f:
-            while chunk := f.read(self.config['chunk_size']):
-                sha1_hash.update(chunk)
-                
-        calculated_hash = sha1_hash.hexdigest()
-        is_valid = calculated_hash == self.config['official_sha1']
-        
-        self.logger.info(f"SHA1 verification: calculated={calculated_hash}, "
-                        f"expected={self.config['official_sha1']}")
-                        
-        return is_valid
+        try:
+            with open(file_path, 'rb') as f:
+                while chunk := f.read(self.config['chunk_size']):
+                    sha1_hash.update(chunk)
+                    
+            calculated_hash = sha1_hash.hexdigest()
+            is_valid = calculated_hash == self.config['official_sha1']
+            
+            self.logger.info(f"SHA1 verification: calculated={calculated_hash}, "
+                            f"expected={self.config['official_sha1']}")
+                            
+            return is_valid
+        except IOError as e:
+            self.logger.error(f"Failed to read file for SHA1 verification: {str(e)}")
+            return False
 
     async def verify_strap_signature(self, strap_path: Path) -> bool:
         """
-        Verify the strap.sh signature using GnuPG with enhanced error checking and validation.
-        Implements a more robust signature verification process with proper key handling.
+        Verify the strap.sh signature using GnuPG with enhanced error checking.
         """
         try:
             # BlackArch maintainer's signing key
             BLACKARCH_SIGNING_KEY = "4345771566D76038C7FEB43863EC0ADBEA87E4E3"
             
-            # First ensure we have a clean GPG environment
+            # Create a clean GPG environment
             gpg_home = Path(tempfile.mkdtemp())
+            self.config['temp_dir'] = gpg_home  # Store for cleanup
             os.environ['GNUPGHOME'] = str(gpg_home)
             
-            # Download the signature file with explicit verification
+            # Download the signature file
             sig_url = f"{self.config['official_strap_url']}.sig"
             sig_path = strap_path.with_suffix('.sh.sig')
             
@@ -257,19 +266,22 @@ Version: 1.0.0 STABLE
                     return False
                 
                 sig_content = await response.read()
-                if not sig_content:
-                    self.logger.error("Downloaded signature file is empty")
+                
+                # Verify signature content
+                if len(sig_content) < 100:  # Basic size validation
+                    self.logger.error(f"Signature file too small: {len(sig_content)} bytes")
                     return False
                 
-                # Write signature file with explicit verification
+                # Write signature file
                 sig_path.write_bytes(sig_content)
                 if not sig_path.exists() or sig_path.stat().st_size == 0:
-                    self.logger.error("Signature file not written correctly")
+                    self.logger.error("Failed to write signature file")
                     return False
                 
                 self.logger.info(f"Signature file saved to {sig_path}")
+                self.logger.debug(f"Signature content first bytes: {sig_content[:20].hex()}")
             
-            # Initialize new GPG home directory
+            # Initialize GPG
             init_cmd = await asyncio.create_subprocess_exec(
                 'gpg',
                 '--batch',
@@ -281,7 +293,7 @@ Version: 1.0.0 STABLE
             )
             await init_cmd.communicate()
             
-            # Import the BlackArch signing key with verification
+            # Import the BlackArch signing key
             self.logger.info("Importing BlackArch signing key...")
             import_cmd = await asyncio.create_subprocess_exec(
                 'gpg',
@@ -295,10 +307,10 @@ Version: 1.0.0 STABLE
             
             stdout, stderr = await import_cmd.communicate()
             if import_cmd.returncode != 0:
-                self.logger.error(f"Failed to import key: {stderr.decode()}")
+                self.logger.error(f"Key import failed: {stderr.decode()}")
                 return False
             
-            # Verify the key was imported correctly
+            # Verify the key was imported
             verify_key_cmd = await asyncio.create_subprocess_exec(
                 'gpg',
                 '--batch',
@@ -319,6 +331,8 @@ Version: 1.0.0 STABLE
                 'gpg',
                 '--batch',
                 '--no-tty',
+                '--verbose',
+                '--debug-all',
                 '--verify',
                 str(sig_path),
                 str(strap_path),
@@ -342,22 +356,26 @@ Version: 1.0.0 STABLE
             
         finally:
             # Clean up the temporary GPG home
-            if 'gpg_home' in locals():
+            if self.config['temp_dir']:
                 import shutil
-                shutil.rmtree(str(gpg_home), ignore_errors=True)
+                try:
+                    shutil.rmtree(str(self.config['temp_dir']), ignore_errors=True)
+                except Exception as e:
+                    self.logger.warning(f"Failed to clean up temp directory: {str(e)}")
 
     async def install(self) -> bool:
         """
         Execute the BlackArch installation process with enhanced security and monitoring.
-        Implements official installation steps with additional verification.
         """
         try:
             self.console.print(Panel(self.BANNER, border_style="cyan"))
             
+            # Check root privileges
             if os.geteuid() != 0:
                 self.console.print("[red]Must run as root[/red]")
                 return False
                 
+            # Create session for downloads
             await self.create_session()
             
             with Progress(
@@ -370,7 +388,7 @@ Version: 1.0.0 STABLE
                 expand=True
             ) as progress:
                 
-                # Download strap.sh with resume capability
+                # Download strap.sh
                 strap_path = Path(tempfile.mkdtemp()) / "strap.sh"
                 if not await self.download_with_resume(
                     self.config['official_strap_url'],
@@ -383,12 +401,13 @@ Version: 1.0.0 STABLE
                     ))
                     return False
                 
-                # Verify both SHA1 and GPG signature
+                # Verify integrity
                 verify_task = progress.add_task(
                     "[cyan]Verifying integrity...[/cyan]",
                     total=2
                 )
                 
+                # SHA1 verification
                 if not self.verify_sha1(strap_path):
                     progress.update(verify_task, completed=True)
                     self.console.print(Panel(
@@ -399,6 +418,7 @@ Version: 1.0.0 STABLE
                     
                 progress.update(verify_task, advance=1)
                 
+                # GPG signature verification
                 if not await self.verify_strap_signature(strap_path):
                     progress.update(verify_task, completed=True)
                     self.console.print(Panel(
@@ -415,28 +435,73 @@ Version: 1.0.0 STABLE
                     total=1
                 )
                 
+                # Set executable permissions
                 os.chmod(strap_path, 0o755)
+                
+                # Run installation script with detailed output capture
                 process = await asyncio.create_subprocess_exec(
                     str(strap_path),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
                 
+                # Monitor installation progress
+                while True:
+                    try:
+                        stdout_line = await process.stdout.readline()
+                        if not stdout_line:
+                            break
+                        self.logger.info(stdout_line.decode().strip())
+                    except Exception as e:
+                        self.logger.error(f"Error reading installation output: {str(e)}")
+                
+                # Wait for completion
                 stdout, stderr = await process.communicate()
                 
                 if process.returncode != 0:
                     progress.update(install_task, completed=True)
+                    error_msg = stderr.decode().strip()
+                    self.logger.error(f"Installation failed with error: {error_msg}")
                     self.console.print(Panel(
-                        f"[red]Installation failed: {stderr.decode()}[/red]",
+                        f"[red]Installation failed: {error_msg}[/red]",
                         border_style="red"
                     ))
                     return False
                     
                 progress.update(install_task, completed=True)
                 
+                # Verify installation success
+                verify_install_task = progress.add_task(
+                    "[cyan]Verifying installation...[/cyan]",
+                    total=1
+                )
+                
+                # Check if pacman config was updated
+                pacman_conf = Path("/etc/pacman.conf")
+                try:
+                    content = pacman_conf.read_text()
+                    if "[blackarch]" not in content:
+                        self.logger.error("BlackArch repository not found in pacman.conf")
+                        progress.update(verify_install_task, completed=True)
+                        self.console.print(Panel(
+                            "[red]Installation verification failed: BlackArch repository not configured[/red]",
+                            border_style="red"
+                        ))
+                        return False
+                except Exception as e:
+                    self.logger.error(f"Failed to verify pacman configuration: {str(e)}")
+                    progress.update(verify_install_task, completed=True)
+                    return False
+                
+                progress.update(verify_install_task, completed=True)
+            
+            # Display success message with next steps
             self.console.print(Panel(
                 "[green]BlackArch installation completed successfully![/green]\n"
-                "[yellow]Please run 'sudo pacman -Syu' to sync the repositories[/yellow]",
+                "[yellow]Next steps:[/yellow]\n"
+                "1. Run 'sudo pacman -Syu' to sync the repositories\n"
+                "2. Install tools using 'sudo pacman -S <package-name>'\n"
+                "3. View available tools at https://blackarch.org/tools.html",
                 border_style="green"
             ))
             return True
@@ -450,7 +515,14 @@ Version: 1.0.0 STABLE
             return False
             
         finally:
+            # Ensure proper cleanup
             await self.close_session()
+            if hasattr(self, 'temp_dir') and self.config['temp_dir']:
+                import shutil
+                try:
+                    shutil.rmtree(str(self.config['temp_dir']), ignore_errors=True)
+                except Exception as e:
+                    self.logger.warning(f"Failed to clean up temporary files: {str(e)}")
 
 async def main():
     """
