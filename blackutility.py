@@ -1,443 +1,324 @@
-#!/usr/bin/env python3
 import os
 import sys
-import subprocess
+import asyncio
+import aiohttp
 import hashlib
 import tempfile
 import logging
-import shutil
-from typing import Tuple, Optional
+import json
 from pathlib import Path
-import requests
 from datetime import datetime
-from urllib.parse import urlparse
+from typing import Dict, Any, Optional, List, Tuple
+from rich.console import Console
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeRemainingColumn
+from rich.layout import Layout
+from rich.live import Live
+from rich.table import Table
+from rich.style import Style
+from rich.text import Text
+from concurrent.futures import ThreadPoolExecutor
 from logging.handlers import RotatingFileHandler
 
-class StrapInstallationError(Exception):
-    """Custom exception for strap installation failures."""
-    pass
-
-class SecurityVerificationError(Exception):
-    """Custom exception for security verification failures."""
-    pass
-
-class BlackArchInstaller:
-    """Handles secure installation of BlackArch Linux tools."""
+class BlackArchUtility:
+    """Enhanced BlackArch Linux utility manager with network optimization and visual improvements."""
     
-    def __init__(self, verbose: bool = False):
-        # ASCII Art Banner
-        self.banner = r"""
-██████╗ ██╗      █████╗  ██████╗██╗  ██╗██╗   ██╗████████╗██╗██╗     
-██╔══██╗██║     ██╔══██╗██╔════╝██║ ██╔╝██║   ██║╚══██╔══╝██║██║     
-██████╔╝██║     ███████║██║     █████╔╝ ██║   ██║   ██║   ██║██║     
-██╔══██╗██║     ██╔══██║██║     ██╔═██╗ ██║   ██║   ██║   ██║██║     
-██████╔╝███████╗██║  ██║╚██████╗██║  ██╗╚██████╔╝   ██║   ██║███████╗
-╚═════╝ ╚══════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝ ╚═════╝    ╚═╝   ╚═╝╚══════╝
-                                                                      
-    [Advanced Cybersecurity Arsenal for Arch]
-    
-    Dev: 0xb0rn3 | Socials{IG}: @theehiv3
-    Repo: github.com/0xb0rn3/blackutility
-           Version: 0.0.2 BETA
-    
-    Stay Ethical. Stay Secure. Enjoy!
-        """
-        
-        # Configure logging
-        self.logger = self._setup_logging(verbose)
-        
-        # Define trusted sources and verification data
-        self.TRUSTED_MIRRORS = [
-            'https://blackarch.org',
-            'https://mirrors.tuna.tsinghua.edu.cn/blackarch',
-            'https://mirror.cyberbits.eu/blackarch',
-        ]
-        
-        # Known good SHA256 hashes of strap.sh (update these regularly)
-        self.KNOWN_GOOD_HASHES = [
-            "8eccac81b4e967c9140923f66b13cfb1f318879df06e3f8e35c913d3c8e070a5"
-        ]
-        
-        # GPG key for BlackArch verification
-        self.BLACKARCH_GPG_KEY = '4345771566D76038C7FEB43863EC0ADBEA87E4E3'
-        
-        # Temporary directory for downloads
-        self.temp_dir = Path(tempfile.mkdtemp(prefix='blackarch_'))
-        
-        # Path for the strap script
-        self.strap_path = self.temp_dir / 'strap.sh'
+    BANNER = '''
+[cyan]
+█▄▄ █░░ ▄▀█ █▀▀ █▄▀ █░█ ▀█▀ █ █░░ █ ▀█▀ █▄█
+█▄█ █▄▄ █▀█ █▄▄ █░█ █▄█ ░█░ █ █▄▄ █ ░█░ ░█░
+[/cyan]
+[yellow]Advanced Cybersecurity Arsenal for Arch[/yellow]
 
-    def _setup_logging(self, verbose: bool) -> logging.Logger:
-        """Configure detailed logging for the installation process."""
-        logger = logging.getLogger('BlackArchInstaller')
-        logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+Dev: 0xb0rn3 | Socials{IG}: @theehiv3
+Repo: github.com/0xb0rn3/blackutility
+Version: 0.1.0 ALFA
+
+[green]Stay Ethical. Stay Secure. Enjoy![/green]
+'''
+    
+    def __init__(self):
+        self.console = Console()
+        self.config = self._load_config()
+        self.session = None
+        self.download_chunks: Dict[str, List[bytes]] = {}
+        self.setup_logging()
+        self.layout = self._setup_layout()
         
-        # Set up log directory
-        log_dir = Path('/var/log/blackutility')
+    def _setup_layout(self) -> Layout:
+        """Initialize the rich layout for better visual organization."""
+        layout = Layout()
+        layout.split(
+            Layout(name="header", size=3),
+            Layout(name="main"),
+            Layout(name="footer", size=3)
+        )
+        return layout
+        
+    def _create_status_table(self) -> Table:
+        """Create a status table for displaying system and network information."""
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("Component", style="cyan")
+        table.add_column("Status", style="green")
+        table.add_column("Details", style="yellow")
+        return table
+
+    def _load_config(self) -> Dict[str, Any]:
+        """Load configuration with optimized network settings."""
+        return {
+            'chunk_size': 1024 * 1024,  # 1MB chunks for optimal network usage
+            'max_concurrent_downloads': 3,
+            'max_retries': 5,
+            'retry_delay': 1,
+            'connection_timeout': 30,
+            'mirrors': [
+                "https://mirrors.kernel.org/blackarch/$repo/os/$arch",
+                "https://mirror.cyberbits.eu/blackarch/$repo/os/$arch",
+                "https://mirrors.dotsrc.org/blackarch/$repo/os/$arch"
+            ],
+            'blackarch_key': "4345771566D76038C7FEB43863EC0ADBEA87E4E3",
+            'known_hashes': [
+                "8eccac81b4e967c9140923f66b13cfb1f318879df06e3f8e35c913d3c8e070a5"
+            ]
+        }
+
+    def setup_logging(self):
+        """Configure rotating log handler with detailed formatting."""
+        log_dir = Path("/var/log/blackutility")
         log_dir.mkdir(parents=True, exist_ok=True)
         
-        # Create rotating file handler
-        log_file = log_dir / f"blackutility_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-        file_handler = RotatingFileHandler(
-            log_file,
-            maxBytes=10485760,  # 10MB
+        self.logger = logging.getLogger("BlackArchUtility")
+        self.logger.setLevel(logging.INFO)
+        
+        handler = RotatingFileHandler(
+            log_dir / f"blackutility_{datetime.now():%Y%m%d}.log",
+            maxBytes=10*1024*1024,  # 10MB
             backupCount=5
         )
-        
-        # Create formatters
-        file_formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s [%(filename)s:%(lineno)d] - %(message)s'
+        handler.setFormatter(
+            logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
         )
-        console_formatter = logging.Formatter(
-            '%(message)s'  # Simpler format for console
+        self.logger.addHandler(handler)
+
+    async def create_session(self):
+        """Create optimized aiohttp session with connection pooling."""
+        conn = aiohttp.TCPConnector(
+            limit=self.config['max_concurrent_downloads'],
+            ttl_dns_cache=300,  # Cache DNS results for 5 minutes
+            enable_cleanup_closed=True
         )
         
-        # Configure handlers
-        file_handler.setFormatter(file_formatter)
-        
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setFormatter(console_formatter)
-        
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
-        
-        return logger
+        self.session = aiohttp.ClientSession(
+            connector=conn,
+            timeout=aiohttp.ClientTimeout(total=self.config['connection_timeout'])
+        )
 
-    def print_banner(self):
-        """Display the ASCII art banner."""
-        print(self.banner)
+    async def close_session(self):
+        """Safely close the aiohttp session."""
+        if self.session:
+            await self.session.close()
 
-    def display_status(self, message: str, status: bool = True):
-        """Display a status message with appropriate emoji."""
-        emoji = "✅" if status else "❌"
-        print(f"{emoji} {message}")
-    def download_strap(self) -> bool:
-        """
-        Download strap.sh with multiple fallback mirrors and security checks.
+    async def download_with_resume(self, url: str, dest_path: Path, 
+                                 progress: Progress) -> bool:
+        """Download file with resume capability and progress tracking."""
+        file_id = hashlib.md5(url.encode()).hexdigest()
+        chunk_size = self.config['chunk_size']
         
-        Returns:
-            bool: True if download successful and verified
-        """
-        for mirror in self.TRUSTED_MIRRORS:
+        if file_id not in self.download_chunks:
+            self.download_chunks[file_id] = []
+        
+        chunks = self.download_chunks[file_id]
+        start_byte = len(b''.join(chunks))
+        
+        headers = {'Range': f'bytes={start_byte}-'}
+        
+        task_id = progress.add_task(
+            f"[cyan]Downloading {dest_path.name}[/cyan]",
+            total=None,
+            start=start_byte
+        )
+        
+        retry_count = 0
+        while retry_count < self.config['max_retries']:
             try:
-                url = f"{mirror}/strap.sh"
-                self.logger.info(f"Attempting download from: {url}")
-                
-                # Verify URL safety
-                if not self._is_safe_url(url):
-                    continue
-                
-                # Download with security headers
-                response = requests.get(
-                    url,
-                    headers={
-                        'User-Agent': 'BlackArch-Installer/1.0',
-                        'Accept': 'text/plain,application/octet-stream'
-                    },
-                    timeout=30,
-                    verify=True  # Enforce SSL verification
-                )
-                
-                if response.status_code != 200:
-                    raise StrapInstallationError(
-                        f"Download failed with status: {response.status_code}"
-                    )
-                
-                # Save to temporary location
-                self.strap_path.write_bytes(response.content)
-                
-                # Verify downloaded content
-                if self._verify_strap():
-                    self.logger.info("Strap script downloaded and verified successfully")
+                async with self.session.get(url, headers=headers) as response:
+                    if response.status == 416:
+                        return True
+                        
+                    if not response.status in (200, 206):
+                        raise aiohttp.ClientError(
+                            f"Bad status code: {response.status}"
+                        )
+                    
+                    total = int(response.headers.get('Content-Length', 0))
+                    progress.update(task_id, total=total + start_byte)
+                    
+                    async for chunk in response.content.iter_chunked(chunk_size):
+                        chunks.append(chunk)
+                        progress.update(task_id, advance=len(chunk))
+                        
+                    with open(dest_path, 'wb') as f:
+                        f.write(b''.join(chunks))
+                        
                     return True
                     
             except Exception as e:
-                self.logger.warning(f"Download failed from {mirror}: {str(e)}")
-                continue
-                
-        raise StrapInstallationError("Failed to download strap.sh from all mirrors")
+                retry_count += 1
+                self.logger.warning(
+                    f"Download attempt {retry_count} failed: {str(e)}"
+                )
+                if retry_count < self.config['max_retries']:
+                    await asyncio.sleep(self.config['retry_delay'])
+                    
+        return False
 
-    def _is_safe_url(self, url: str) -> bool:
-        """
-        Verify URL safety and structure.
-        
-        Args:
-            url: URL to verify
-            
-        Returns:
-            bool: True if URL is considered safe
-        """
+    async def verify_strap(self, content: bytes) -> bool:
+        """Verify strap.sh integrity with retries."""
+        sha256 = hashlib.sha256(content).hexdigest()
+        return sha256 in self.config['known_hashes']
+
+    async def test_mirror_speed(self, mirror: str) -> Tuple[str, float]:
+        """Test mirror download speed with visual feedback."""
         try:
-            parsed = urlparse(url)
-            return all([
-                parsed.scheme in ('http', 'https'),
-                parsed.netloc in [urlparse(mirror).netloc for mirror in self.TRUSTED_MIRRORS],
-                parsed.path.endswith('/strap.sh'),
-                not parsed.params,
-                not parsed.query,
-                not parsed.fragment
-            ])
+            url = f"{mirror.split('$')[0]}/strap.sh"
+            start_time = datetime.now()
+            
+            async with self.session.get(url) as response:
+                if response.status == 200:
+                    await response.read()
+                    duration = (datetime.now() - start_time).total_seconds()
+                    return mirror, duration
+                    
         except Exception:
-            return False
+            pass
+            
+        return mirror, float('inf')
 
-    def _verify_strap(self) -> bool:
-        """
-        Perform multiple security checks on downloaded strap.sh.
+    async def get_fastest_mirror(self) -> str:
+        """Find the fastest responding mirror with visual feedback."""
+        tasks = [self.test_mirror_speed(mirror) 
+                for mirror in self.config['mirrors']]
+        results = await asyncio.gather(*tasks)
         
-        Returns:
-            bool: True if all security checks pass
-        """
+        sorted_mirrors = sorted(results, key=lambda x: x[1])
+        return sorted_mirrors[0][0]
+
+    async def install(self) -> bool:
+        """Install BlackArch with enhanced visual feedback and progress tracking."""
         try:
-            # Check file size (shouldn't be too small or too large)
-            size = self.strap_path.stat().st_size
-            if not 1024 <= size <= 1024*1024:  # Between 1KB and 1MB
-                raise SecurityVerificationError("Suspicious file size")
+            self.console.print(Panel(self.BANNER, border_style="cyan"))
             
-            # Verify content structure
-            content = self.strap_path.read_text()
-            if not self._verify_content_structure(content):
-                raise SecurityVerificationError("Invalid script structure")
-            
-            # Check SHA256 hash
-            if not self._verify_hash():
-                raise SecurityVerificationError("Hash verification failed")
-            
-            # Verify GPG signature if available
-            if not self._verify_gpg():
-                self.logger.warning("GPG verification failed, falling back to hash verification")
-            
-            # Set correct permissions
-            self.strap_path.chmod(0o755)
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Verification failed: {str(e)}")
-            return False
-
-    def _verify_content_structure(self, content: str) -> bool:
-        """
-        Verify the basic structure and content of the strap script.
-        
-        Args:
-            content: Script content to verify
-            
-        Returns:
-            bool: True if content structure is valid
-        """
-        required_elements = [
-            '#!/bin/sh',
-            'blackarch',
-            'pacman',
-            'check_priv',
-            'make_tmp_dir'
-        ]
-        
-        suspicious_patterns = [
-            'rm -rf /',
-            ':(){ :|:& };:',
-            'mkfs',
-            'dd if=',
-            'mv /* ',
-            '>/dev/sda'
-        ]
-        
-        # Check for required elements
-        if not all(element in content for element in required_elements):
-            return False
-            
-        # Check for suspicious patterns
-        if any(pattern in content for pattern in suspicious_patterns):
-            return False
-            
-        return True
-
-    def _verify_hash(self) -> bool:
-        """
-        Verify the SHA256 hash of strap.sh.
-        
-        Returns:
-            bool: True if hash matches known good hashes
-        """
-        sha256_hash = hashlib.sha256()
-        
-        with open(self.strap_path, 'rb') as f:
-            for chunk in iter(lambda: f.read(4096), b''):
-                sha256_hash.update(chunk)
-                
-        return sha256_hash.hexdigest() in self.KNOWN_GOOD_HASHES
-
-    def _verify_gpg(self) -> bool:
-        """
-        Verify GPG signature of strap.sh if available.
-        
-        Returns:
-            bool: True if GPG verification succeeds
-        """
-        try:
-            # Download signature
-            sig_url = f"{self.TRUSTED_MIRRORS[0]}/strap.sh.sig"
-            sig_path = self.temp_dir / 'strap.sh.sig'
-            
-            response = requests.get(sig_url, timeout=30)
-            if response.status_code != 200:
-                return False
-                
-            sig_path.write_bytes(response.content)
-            
-            # Import BlackArch GPG key
-            subprocess.run(
-                ['gpg', '--keyserver', 'keyserver.ubuntu.com',
-                 '--recv-keys', self.BLACKARCH_GPG_KEY],
-                check=True,
-                capture_output=True
-            )
-            
-            # Verify signature
-            result = subprocess.run(
-                ['gpg', '--verify', str(sig_path), str(self.strap_path)],
-                capture_output=True,
-                text=True
-            )
-            
-            return result.returncode == 0
-            
-        except Exception as e:
-            self.logger.warning(f"GPG verification error: {str(e)}")
-            return False
-
-    def install_strap(self) -> bool:
-        """
-        Execute strap.sh installation safely.
-        
-        Returns:
-            bool: True if installation succeeds
-        """
-        try:
-            # Check if running as root
             if os.geteuid() != 0:
-                self.display_status("Must run as root", False)
-                raise StrapInstallationError("Must run as root")
+                self.console.print("[red]Must run as root[/red]")
+                return False
+                
+            await self.create_session()
             
-            self.display_status("Starting BlackArch strap installation...")
-            
-            # Execute strap script
-            result = subprocess.run(
-                [str(self.strap_path)],
-                capture_output=True,
-                text=True,
-                timeout=300  # 5 minute timeout
-            )
-            
-            if result.returncode != 0:
-                self.display_status("Installation failed", False)
-                raise StrapInstallationError(
-                    f"Installation failed with code {result.returncode}: {result.stderr}"
+            # Enhanced progress display
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(complete_style="green", finished_style="green"),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeRemainingColumn(),
+                console=self.console,
+                expand=True
+            ) as progress:
+                
+                # Mirror testing with visual feedback
+                mirror_task = progress.add_task(
+                    "[yellow]Testing mirrors...[/yellow]",
+                    total=len(self.config['mirrors'])
                 )
-            
-            # Verify installation success
-            if not self._verify_installation():
-                self.display_status("Post-installation verification failed", False)
-                raise StrapInstallationError("Post-installation verification failed")
-            
-            self.display_status("BlackArch strap installed successfully")
+                mirror = await self.get_fastest_mirror()
+                progress.update(mirror_task, completed=True)
+                
+                # Download with enhanced progress
+                strap_path = Path(tempfile.mkdtemp()) / "strap.sh"
+                url = f"{mirror.split('$')[0]}/strap.sh"
+                
+                if not await self.download_with_resume(url, strap_path, progress):
+                    self.console.print(Panel(
+                        "[red]Download failed after retries[/red]",
+                        border_style="red"
+                    ))
+                    return False
+                    
+                # Verification with spinner
+                verify_task = progress.add_task(
+                    "[cyan]Verifying integrity...[/cyan]",
+                    total=1
+                )
+                content = strap_path.read_bytes()
+                if not await self.verify_strap(content):
+                    progress.update(verify_task, completed=True)
+                    self.console.print(Panel(
+                        "[red]Verification failed[/red]",
+                        border_style="red"
+                    ))
+                    return False
+                    
+                progress.update(verify_task, completed=True)
+                
+                # Installation with detailed progress
+                install_task = progress.add_task(
+                    "[green]Installing BlackArch...[/green]",
+                    total=1
+                )
+                
+                os.chmod(strap_path, 0o755)
+                process = await asyncio.create_subprocess_exec(
+                    str(strap_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                stdout, stderr = await process.communicate()
+                
+                if process.returncode != 0:
+                    progress.update(install_task, completed=True)
+                    self.console.print(Panel(
+                        f"[red]Installation failed: {stderr.decode()}[/red]",
+                        border_style="red"
+                    ))
+                    return False
+                    
+                progress.update(install_task, completed=True)
+                
+            self.console.print(Panel(
+                "[green]Installation completed successfully![/green]",
+                border_style="green"
+            ))
             return True
             
         except Exception as e:
-            self.logger.error(f"Installation failed: {str(e)}")
+            self.console.print(Panel(
+                f"[red]Error: {str(e)}[/red]",
+                border_style="red"
+            ))
             return False
+            
         finally:
-            # Cleanup
-            self._cleanup()
+            await self.close_session()
 
-    def generate_report(self):
-        """Generate an installation report."""
-        report = f"""
-{'='*60}
-📊 BlackArch Installation Report
-{'='*60}
-
-🕒 Installation Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-🔧 System Information:
-   - OS: {self._get_os_info()}
-   - Kernel: {self._get_kernel_version()}
-   
-💾 Installation Location:
-   - Log file: {self.logger.handlers[0].baseFilename}
-   
-📝 Note: For detailed logs, check the log file above.
-{'='*60}
-"""
-        print(report)
-
-    def _get_os_info(self) -> str:
-        """Get OS information."""
-        try:
-            with open('/etc/os-release', 'r') as f:
-                for line in f:
-                    if line.startswith('PRETTY_NAME='):
-                        return line.split('=')[1].strip().strip('"')
-        except Exception:
-            return "Unknown"
-
-    def _get_kernel_version(self) -> str:
-        """Get kernel version."""
-        try:
-            return subprocess.check_output(['uname', '-r'], text=True).strip()
-        except Exception:
-            return "Unknown"
-
-
-    def _verify_installation(self) -> bool:
-        """
-        Verify successful BlackArch installation.
-        
-        Returns:
-            bool: True if installation appears successful
-        """
-        checks = [
-            # Check BlackArch repository
-            "grep -q '\\[blackarch\\]' /etc/pacman.conf",
-            # Check pacman database
-            "pacman -Sl blackarch >/dev/null",
-            # Check keyring
-            "pacman-key --list-keys | grep -q 'BlackArch'"
-        ]
-        
-        for check in checks:
-            try:
-                subprocess.run(
-                    check,
-                    shell=True,
-                    check=True,
-                    capture_output=True
-                )
-            except subprocess.CalledProcessError:
-                return False
-                
-        return True
-
-def main():
-    """Main entry point for the BlackArch installation process."""
-    installer = BlackArchInstaller(verbose=False)
-    
+async def main():
+    """Entry point with enhanced error handling and user feedback."""
+    utility = BlackArchUtility()
     try:
-        installer.print_banner()
-        
-        installer.display_status("Starting BlackArch installation process...")
-        
-        if installer.download_strap():
-            if installer.install_strap():
-                installer.generate_report()
-                installer.display_status("BlackArch installation completed successfully!")
-                return 0
-        
-        installer.display_status("Installation failed", False)
+        success = await utility.install()
+        return 0 if success else 1
+    except KeyboardInterrupt:
+        utility.console.print(Panel(
+            "\n[yellow]Operation cancelled by user[/yellow]",
+            border_style="yellow"
+        ))
         return 1
-        
     except Exception as e:
-        installer.display_status(f"Fatal error: {str(e)}", False)
+        utility.console.print(Panel(
+            f"[red]Fatal error: {str(e)}[/red]",
+            border_style="red"
+        ))
         return 1
 
 if __name__ == "__main__":
-    sys.exit(main())   
+    sys.exit(asyncio.run(main()))
