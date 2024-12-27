@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from logging.handlers import RotatingFileHandler
 
 class BlackArchUtility:
-    """Enhanced BlackArch Linux utility manager with network optimization and visual improvements."""
+    """Enhanced BlackArch Linux utility manager with official repository support."""
     
     BANNER = '''
 [cyan]
@@ -32,7 +32,7 @@ class BlackArchUtility:
 
 Dev: 0xb0rn3 | Socials{IG}: @theehiv3
 Repo: github.com/0xb0rn3/blackutility
-Version: 0.1.0 ALFA
+Version: 1.0.0 BETA
 
 [green]Stay Ethical. Stay Secure. Enjoy![/green]
 '''
@@ -71,15 +71,10 @@ Version: 0.1.0 ALFA
             'max_retries': 5,
             'retry_delay': 1,
             'connection_timeout': 30,
-            'mirrors': [
-                "https://mirrors.kernel.org/blackarch/$repo/os/$arch",
-                "https://mirror.cyberbits.eu/blackarch/$repo/os/$arch",
-                "https://mirrors.dotsrc.org/blackarch/$repo/os/$arch"
-            ],
+            'official_strap_url': "https://blackarch.org/strap.sh",  # Official BlackArch strap URL
+            'blackarch_keyserver': "hkps://keyserver.ubuntu.com",
             'blackarch_key': "4345771566D76038C7FEB43863EC0ADBEA87E4E3",
-            'known_hashes': [
-                "8eccac81b4e967c9140923f66b13cfb1f318879df06e3f8e35c913d3c8e070a5"
-            ]
+            'known_hashes': []  # We'll verify against the official source
         }
 
     def setup_logging(self):
@@ -88,29 +83,43 @@ Version: 0.1.0 ALFA
         log_dir.mkdir(parents=True, exist_ok=True)
         
         self.logger = logging.getLogger("BlackArchUtility")
-        self.logger.setLevel(logging.INFO)
+        self.logger.setLevel(logging.DEBUG)  # Enhanced debugging
         
-        handler = RotatingFileHandler(
+        # Console handler for immediate feedback
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(
+            logging.Formatter('%(levelname)s: %(message)s')
+        )
+        self.logger.addHandler(console_handler)
+        
+        # File handler for detailed logging
+        file_handler = RotatingFileHandler(
             log_dir / f"blackutility_{datetime.now():%Y%m%d}.log",
             maxBytes=10*1024*1024,  # 10MB
             backupCount=5
         )
-        handler.setFormatter(
-            logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(
+            logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')
         )
-        self.logger.addHandler(handler)
+        self.logger.addHandler(file_handler)
 
     async def create_session(self):
-        """Create optimized aiohttp session with connection pooling."""
+        """Create optimized aiohttp session with improved SSL handling."""
         conn = aiohttp.TCPConnector(
             limit=self.config['max_concurrent_downloads'],
-            ttl_dns_cache=300,  # Cache DNS results for 5 minutes
-            enable_cleanup_closed=True
+            ttl_dns_cache=300,
+            enable_cleanup_closed=True,
+            ssl=True  # Ensure SSL verification
         )
         
         self.session = aiohttp.ClientSession(
             connector=conn,
-            timeout=aiohttp.ClientTimeout(total=self.config['connection_timeout'])
+            timeout=aiohttp.ClientTimeout(total=self.config['connection_timeout']),
+            headers={
+                'User-Agent': 'BlackArchUtility/1.0.0',
+                'Accept': '*/*'
+            }
         )
 
     async def close_session(self):
@@ -120,7 +129,7 @@ Version: 0.1.0 ALFA
 
     async def download_with_resume(self, url: str, dest_path: Path, 
                                  progress: Progress) -> bool:
-        """Download file with resume capability and progress tracking."""
+        """Download file with resume capability and enhanced error handling."""
         file_id = hashlib.md5(url.encode()).hexdigest()
         chunk_size = self.config['chunk_size']
         
@@ -132,6 +141,9 @@ Version: 0.1.0 ALFA
         
         headers = {'Range': f'bytes={start_byte}-'}
         
+        self.logger.info(f"Starting download from {url}")
+        self.logger.debug(f"Request headers: {headers}")
+        
         task_id = progress.add_task(
             f"[cyan]Downloading {dest_path.name}[/cyan]",
             total=None,
@@ -142,7 +154,11 @@ Version: 0.1.0 ALFA
         while retry_count < self.config['max_retries']:
             try:
                 async with self.session.get(url, headers=headers) as response:
+                    self.logger.debug(f"Response status: {response.status}")
+                    self.logger.debug(f"Response headers: {dict(response.headers)}")
+                    
                     if response.status == 416:
+                        self.logger.info("File already completely downloaded")
                         return True
                         
                     if not response.status in (200, 206):
@@ -157,54 +173,67 @@ Version: 0.1.0 ALFA
                         chunks.append(chunk)
                         progress.update(task_id, advance=len(chunk))
                         
-                    with open(dest_path, 'wb') as f:
-                        f.write(b''.join(chunks))
-                        
+                    final_content = b''.join(chunks)
+                    dest_path.write_bytes(final_content)
+                    
+                    self.logger.info(f"Successfully downloaded {len(final_content)} bytes")
                     return True
                     
-            except Exception as e:
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 retry_count += 1
                 self.logger.warning(
                     f"Download attempt {retry_count} failed: {str(e)}"
                 )
                 if retry_count < self.config['max_retries']:
                     await asyncio.sleep(self.config['retry_delay'])
+            except Exception as e:
+                self.logger.error(f"Unexpected error during download: {str(e)}", 
+                                exc_info=True)
+                return False
                     
+        self.logger.error("Download failed after all retries")
         return False
 
-    async def verify_strap(self, content: bytes) -> bool:
-        """Verify strap.sh integrity with retries."""
-        sha256 = hashlib.sha256(content).hexdigest()
-        return sha256 in self.config['known_hashes']
-
-    async def test_mirror_speed(self, mirror: str) -> Tuple[str, float]:
-        """Test mirror download speed with visual feedback."""
+    async def verify_strap_signature(self, strap_path: Path) -> bool:
+        """Verify the strap.sh signature using GnuPG."""
         try:
-            url = f"{mirror.split('$')[0]}/strap.sh"
-            start_time = datetime.now()
+            # Download the signature file
+            sig_url = f"{self.config['official_strap_url']}.sig"
+            sig_path = strap_path.with_suffix('.sh.sig')
             
-            async with self.session.get(url) as response:
-                if response.status == 200:
-                    await response.read()
-                    duration = (datetime.now() - start_time).total_seconds()
-                    return mirror, duration
+            async with self.session.get(sig_url) as response:
+                if response.status != 200:
+                    self.logger.error("Failed to download signature file")
+                    return False
                     
-        except Exception:
-            pass
+                sig_content = await response.read()
+                sig_path.write_bytes(sig_content)
             
-        return mirror, float('inf')
-
-    async def get_fastest_mirror(self) -> str:
-        """Find the fastest responding mirror with visual feedback."""
-        tasks = [self.test_mirror_speed(mirror) 
-                for mirror in self.config['mirrors']]
-        results = await asyncio.gather(*tasks)
-        
-        sorted_mirrors = sorted(results, key=lambda x: x[1])
-        return sorted_mirrors[0][0]
+            # Import BlackArch key if needed
+            import_cmd = await asyncio.create_subprocess_exec(
+                'gpg', '--keyserver', self.config['blackarch_keyserver'],
+                '--recv-keys', self.config['blackarch_key'],
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await import_cmd.communicate()
+            
+            # Verify signature
+            verify_cmd = await asyncio.create_subprocess_exec(
+                'gpg', '--verify', str(sig_path), str(strap_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            _, stderr = await verify_cmd.communicate()
+            return verify_cmd.returncode == 0
+            
+        except Exception as e:
+            self.logger.error(f"Signature verification failed: {str(e)}")
+            return False
 
     async def install(self) -> bool:
-        """Install BlackArch with enhanced visual feedback and progress tracking."""
+        """Install BlackArch with enhanced security and progress tracking."""
         try:
             self.console.print(Panel(self.BANNER, border_style="cyan"))
             
@@ -214,7 +243,6 @@ Version: 0.1.0 ALFA
                 
             await self.create_session()
             
-            # Enhanced progress display
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
@@ -225,42 +253,43 @@ Version: 0.1.0 ALFA
                 expand=True
             ) as progress:
                 
-                # Mirror testing with visual feedback
-                mirror_task = progress.add_task(
-                    "[yellow]Testing mirrors...[/yellow]",
-                    total=len(self.config['mirrors'])
-                )
-                mirror = await self.get_fastest_mirror()
-                progress.update(mirror_task, completed=True)
-                
-                # Download with enhanced progress
+                # Download strap.sh from official source
                 strap_path = Path(tempfile.mkdtemp()) / "strap.sh"
-                url = f"{mirror.split('$')[0]}/strap.sh"
+                download_task = progress.add_task(
+                    "[cyan]Downloading strap.sh[/cyan]",
+                    total=None
+                )
                 
-                if not await self.download_with_resume(url, strap_path, progress):
+                if not await self.download_with_resume(
+                    self.config['official_strap_url'],
+                    strap_path,
+                    progress
+                ):
                     self.console.print(Panel(
-                        "[red]Download failed after retries[/red]",
+                        "[red]Failed to download strap.sh[/red]",
                         border_style="red"
                     ))
                     return False
                     
-                # Verification with spinner
+                progress.update(download_task, completed=True)
+                
+                # Verify signature
                 verify_task = progress.add_task(
-                    "[cyan]Verifying integrity...[/cyan]",
+                    "[cyan]Verifying signature...[/cyan]",
                     total=1
                 )
-                content = strap_path.read_bytes()
-                if not await self.verify_strap(content):
+                
+                if not await self.verify_strap_signature(strap_path):
                     progress.update(verify_task, completed=True)
                     self.console.print(Panel(
-                        "[red]Verification failed[/red]",
+                        "[red]Signature verification failed[/red]",
                         border_style="red"
                     ))
                     return False
                     
                 progress.update(verify_task, completed=True)
                 
-                # Installation with detailed progress
+                # Install BlackArch
                 install_task = progress.add_task(
                     "[green]Installing BlackArch...[/green]",
                     total=1
@@ -286,12 +315,13 @@ Version: 0.1.0 ALFA
                 progress.update(install_task, completed=True)
                 
             self.console.print(Panel(
-                "[green]Installation completed successfully![/green]",
+                "[green]BlackArch installation completed successfully![/green]",
                 border_style="green"
             ))
             return True
             
         except Exception as e:
+            self.logger.error(f"Installation failed: {str(e)}", exc_info=True)
             self.console.print(Panel(
                 f"[red]Error: {str(e)}[/red]",
                 border_style="red"
@@ -302,7 +332,7 @@ Version: 0.1.0 ALFA
             await self.close_session()
 
 async def main():
-    """Entry point with enhanced error handling and user feedback."""
+    """Entry point with comprehensive error handling."""
     utility = BlackArchUtility()
     try:
         success = await utility.install()
@@ -314,6 +344,7 @@ async def main():
         ))
         return 1
     except Exception as e:
+        utility.logger.error("Fatal error", exc_info=True)
         utility.console.print(Panel(
             f"[red]Fatal error: {str(e)}[/red]",
             border_style="red"
