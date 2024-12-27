@@ -13,3 +13,8 @@ numpy>=1.21.0
 pytest>=6.2.5
 mypy>=0.910
 black>=21.6b0  # Code formatting
+# requirements.txt
+
+rich>=10.0.0
+psutil>=5.8.0
+speedtest-cli>=2.1.3
