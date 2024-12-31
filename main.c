@@ -132,6 +132,7 @@ void signal_handler(int signum);
 void get_terminal_width(int* width);
 void parse_package_info(const char* line, Package* pkg);
 void install_tools(void);
+int generate_tool_list(void);
 
 typedef struct {
     int total_packages;
@@ -537,6 +538,43 @@ void update_unified_loader(const char* current_package, int force_update) {
     fflush(stdout);
 }
 
+int generate_tool_list(void) {
+    status_message("Querying BlackArch repository...", "info");
+    
+    // First, make sure the BlackArch repository is enabled
+    if (!execute_command("grep -q '\\[blackarch\\]' /etc/pacman.conf")) {
+        status_message("BlackArch repository not found. Adding repository...", "info");
+        
+        // Add BlackArch repository
+        const char* repo_cmd = "echo -e '[blackarch]\\nServer = https://blackarch.org/blackarch/$repo/os/$arch' >> /etc/pacman.conf";
+        if (!execute_command(repo_cmd)) {
+            status_message("Failed to add BlackArch repository", "error");
+            return 0;
+        }
+        
+        // Install BlackArch keyring
+        if (!execute_command("pacman-key --recv-key 4345771566D76038C7FEB43863EC0ADBEA87E4E3 && "
+                           "pacman-key --lsign-key 4345771566D76038C7FEB43863EC0ADBEA87E4E3")) {
+            status_message("Failed to install BlackArch keyring", "error");
+            return 0;
+        }
+    }
+    
+    // Update package database
+    if (!execute_command("pacman -Sy")) {
+        status_message("Failed to update package database", "error");
+        return 0;
+    }
+    
+    // Query available BlackArch tools and save to results.txt
+    if (!execute_command("pacman -Sl blackarch | awk '{print $2}' > " TEMP_FILE)) {
+        status_message("Failed to generate tool list", "error");
+        return 0;
+    }
+    
+    return 1;
+}
+
 void install_tools(void) {
     if (!check_system_requirements()) {
         return;
@@ -656,13 +694,25 @@ int main(void) {
 
     // ====== Main Program Loop ======
     
-    while (keep_running) {
-        // Check if we need to handle an interruption
-        if (cleanup_needed) {
-            printf("\n%sReceived interrupt signal, cleaning up...%s\n", 
-                   FG_YELLOW, RESET);
-            break;
-        }
+while (keep_running) {
+    if (cleanup_needed) {
+        printf("\n%sReceived interrupt signal, cleaning up...%s\n", 
+               FG_YELLOW, RESET);
+        break;
+    }
+
+    // Generate tool list first
+    if (!generate_tool_list()) {
+        status_message("Failed to prepare tool list", "error");
+        break;
+    }
+
+    // Continue with system update
+    status_message("Updating system packages...", "info");
+    if (!execute_command("pacman -Syyu --noconfirm")) {
+        status_message("System update failed", "error");
+        break;
+    }
 
         // Start with system update
         status_message("Updating system packages...", "info");
