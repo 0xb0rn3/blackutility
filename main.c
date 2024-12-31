@@ -66,21 +66,20 @@
 #define TEMP_FILE "results.txt"
 #define SPINNER_DELAY 100000 // Microseconds between spinner updates
 
-// Banner 
+// Modern ASCII art banner with compact design
 const char* BANNER = 
     "\n" FG_CYAN BOLD
-    "██████╗ ██╗      █████╗  ██████╗██╗  ██╗██╗   ██╗████████╗██╗██╗     ██╗████████╗██╗   ██╗\n"
-    "██╔══██╗██║     ██╔══██╗██╔════╝██║ ██╔╝██║   ██║╚══██╔══╝██║██║     ██║╚══██╔══╝╚██╗ ██╔╝\n"
-    "██████╔╝██║     ███████║██║     █████╔╝ ██║   ██║   ██║   ██║██║     ██║   ██║    ╚████╔╝\n"
-    "██╔══██╗██║     ██╔══██║██║     ██╔═██╗ ██║   ██║   ██║   ██║██║     ██║   ██║     ╚██╔╝\n"
-    "██████╔╝███████╗██║  ██║╚██████╗██║  ██╗╚██████╔╝   ██║   ██║███████╗██║   ██║      ██║\n"
-    "╚═════╝ ╚══════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝ ╚═════╝    ╚═╝   ╚═╝╚══════╝╚═╝   ╚═╝      ╚═╝\n"
+    "██████╗ ██╗      █████╗  ██████╗██╗  ██╗██╗   ██╗████████╗██╗██╗\n"
+    "██╔══██╗██║     ██╔══██╗██╔════╝██║ ██╔╝██║   ██║╚══██╔══╝██║██║\n"
+    "██████╔╝██║     ███████║██║     █████╔╝ ██║   ██║   ██║   ██║██║\n"
+    "██╔══██╗██║     ██╔══██║██║     ██╔═██╗ ██║   ██║   ██║   ██║██║\n"
+    "██████╔╝███████╗██║  ██║╚██████╗██║  ██╗╚██████╔╝   ██║   ██║███████╗\n"
+    "╚═════╝ ╚══════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝ ╚═════╝    ╚═╝   ╚═╝╚══════╝\n"
     RESET
-    FG_WHITE "                 [ Advanced Cybersecurity Arsenal for Arch ]\n"
-    FG_CYAN "                             Version 0.1\n" RESET
-    FG_BLUE "              " SYMBOL_ARROW "github.com/0xb0rn3/blackutility\n" RESET
-    FG_WHITE "              " SYMBOL_INFO "Developed by:(@0xb0rn3)\n" RESET
-    FG_MAGENTA "              " SYMBOL_LOCK "Stay Ethical. Stay Secure. Enjoy!\n" RESET;
+    FG_WHITE "           [ Advanced Security Arsenal for Arch Linux ]\n"
+    FG_CYAN "                      Version 0.3-ALFA\n" RESET
+    FG_BLUE "         " SYMBOL_ARROW " Developed & Maintained by @0xb0rn3\n" RESET
+    FG_MAGENTA "         " SYMBOL_LOCK " Stay Ethical. Stay Secure. Stay Vigilant.\n" RESET;
 
 // Global variables
 FILE* log_fp = NULL;
