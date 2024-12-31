@@ -15,6 +15,7 @@
 #include <limits.h>
 #include <fcntl.h>
 #include <ctype.h>
+#include <sys/stat.h> 
 
 // Modern Unicode symbols for improved visual feedback
 #define SYMBOL_SUCCESS "✓"
