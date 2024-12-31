@@ -1,51 +1,27 @@
-# BlackArch Utility Manager
+# BlackUtility - Advanced Cybersecurity Arsenal for Arch
 
-An advanced, security-focused utility for managing BlackArch Linux installation, featuring intelligent network optimization, comprehensive security verification, and an intuitive visual interface. This tool streamlines the BlackArch installation process while maintaining robust security measures and providing detailed feedback throughout the installation journey.
+BlackUtility is a sophisticated command-line utility designed to streamline the installation and management of BlackArch penetration testing tools on Arch Linux systems. Built with modern terminal interfaces and robust error handling, it provides a seamless experience for cybersecurity professionals and enthusiasts.
 
-## Project Overview
+## Features
 
-The BlackArch Utility Manager transforms the traditional BlackArch installation process into a sophisticated, user-friendly experience. It intelligently handles mirror selection, implements secure download protocols, and provides real-time visual feedback, making the installation process both efficient and transparent.
+- **Intelligent Package Management**: Automated installation of the complete BlackArch toolkit with smart retry mechanisms and timeout handling
+- **Modern Terminal Interface**: Beautiful progress bars, spinners, and color-coded output for enhanced visibility
+- **Resource Management**: Automatic system requirement verification and disk space management
+- **Error Resilience**: Comprehensive error handling with automatic retries and detailed logging
+- **Safe Operation**: Lock file implementation to prevent concurrent installations
+- **User-Friendly**: Clear progress indicators and status messages throughout the installation process
 
-## Core Features
+## Prerequisites
 
-### Intelligent Network Management
-The utility implements advanced network handling capabilities that adapt to your connection environment:
-- Dynamic mirror selection that automatically identifies and uses the fastest available mirror
-- Smart download management with chunk-based transfers and resume capability
-- Concurrent download optimization that balances speed and system resources
-- Automatic retry mechanisms with intelligent backoff strategies
+- Arch Linux or Arch-based distribution
+- Root privileges
+- Minimum system requirements:
+  - 10GB of free disk space
+  - 2GB RAM
+  - Active internet connection
+  - Base development tools
 
-### Enhanced Security Measures
-Security remains a top priority throughout the installation process:
-- Real-time SHA-256 verification of all downloaded components
-- Secure connection handling with modern SSL/TLS protocols
-- Multiple integrity check layers to ensure authentic software delivery
-- Comprehensive validation of installation prerequisites
-
-### Visual Interface & Feedback
-The interface provides clear, real-time information about the installation progress:
-- Detailed progress tracking with time estimates and completion percentages
-- Color-coded status indicators for immediate visual feedback
-- Comprehensive error reporting with actionable feedback
-- Interactive installation flow with clear stage progression
-
-### System Integration
-The utility seamlessly integrates with your system:
-- Automatic handling of system permissions and requirements
-- Comprehensive logging system with rotation and management
-- Clean error handling with detailed debugging information
-- Efficient resource management during installation
-
-## Installation Guide
-
-### System Requirements
-- Python 3.8 or higher
-- Arch Linux base installation
-- Root access (sudo privileges)
-- Minimum 2GB available RAM
-- Active internet connection
-
-### Setting Up the Environment
+## Installation
 
 1. Clone the repository:
 ```bash
@@ -53,96 +29,118 @@ git clone https://github.com/0xb0rn3/blackutility.git
 cd blackutility
 ```
 
-2. Create and activate a virtual environment (recommended):
+2. Compile the program:
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Unix/macOS
-# or
-.\venv\Scripts\activate  # On Windows
+gcc -o blackutility main.c -lncurses
 ```
 
-3. Install dependencies:
+3. Make it executable:
 ```bash
-pip install -r requirements.txt
+chmod +x blackutility
 ```
 
-### Running the Utility
+## Usage
 
-Execute the utility with root privileges:
+1. Run the utility with root privileges:
 ```bash
-sudo python blackutility.py
+sudo ./blackutility
 ```
 
-## Configuration Details
+2. The program will:
+   - Verify system requirements
+   - Display a warning message
+   - Prompt for confirmation
+   - Update system packages
+   - Install BlackArch tools with progress indication
 
-The utility uses a sophisticated configuration system that can be customized through the internal settings:
+## Safety Features
 
-### Network Configuration
-- Chunk size: 1MB (optimized for modern connections)
-- Maximum concurrent downloads: 3
-- Connection timeout: 30 seconds
-- Maximum retry attempts: 5
-- Retry delay: Progressive backoff
+- System requirement verification before installation
+- Confirmation prompt before system modification
+- Lock file mechanism to prevent multiple instances
+- Timeout handling for stuck operations
+- Automatic cleanup on interruption
+- Detailed logging of all operations
 
-### Security Settings
-- Enforced SHA-256 verification
-- SSL/TLS certificate verification
-- Known hash verification
-- Secure temporary file handling
+## Logging
 
-## Troubleshooting Guide
+The program maintains detailed logs at:
+- Main log: `/var/log/blackutility.log`
+- Backup log: `/var/log/blackutility.log.bak`
 
-### Common Issues and Solutions
+Log entries include timestamps and severity levels for easy troubleshooting.
 
-1. Mirror Connection Failures
-   - Ensure active internet connection
-   - Check system DNS settings
-   - Verify firewall rules
+## Error Handling
 
-2. Permission Errors
-   - Verify root access
-   - Check directory permissions
-   - Ensure proper user context
+The utility includes several error handling mechanisms:
+- Multiple retry attempts for failed installations
+- Timeout handling for hung operations
+- Disk space verification
+- Proper cleanup on interruption
+- Detailed error logging
 
-3. Download Interruptions
-   - The utility will automatically attempt to resume
-   - Check network stability
-   - Verify disk space availability
+## Terminal Interface Features
 
-## Development and Contributing
+- Progress bars with percentage completion
+- Color-coded status messages
+- Modern Unicode symbols for status indication
+- Centered text boxes for important messages
+- Smooth animations for long-running operations
 
-We welcome contributions that enhance the utility's capabilities while maintaining its security focus and user-friendly nature.
+## Contributing
 
-### Development Setup
 1. Fork the repository
-2. Create a feature branch:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
+2. Create your feature branch
 3. Implement your changes
-4. Add tests where applicable
-5. Submit a pull request
+4. Create a pull request
 
-### Code Style
-- Follow PEP 8 guidelines
-- Maintain comprehensive documentation
-- Include type hints
-- Add detailed comments for complex logic
+Please maintain the existing code style and add appropriate error handling for new features.
 
-## Support and Community
+## Security Considerations
 
-- GitHub Issues: Report bugs and suggest features
+- The tool requires root privileges - use with caution
+- All installed packages come from the official BlackArch repositories
+- The program creates lock files to prevent concurrent modifications
+- System state is verified before any modifications
+
+## Troubleshooting
+
+Common issues and solutions:
+
+1. **Insufficient Permissions**
+   - Ensure you're running with sudo or as root
+
+2. **Installation Failures**
+   - Check internet connectivity
+   - Verify available disk space
+   - Review logs at `/var/log/blackutility.log`
+
+3. **Lock File Issues**
+   - Delete `/var/lock/blackutility.lock` if no instance is running
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License - see LICENSE file for details
 
 ## Acknowledgments
 
-Special thanks to:
-- The BlackArch Linux team
-- Contributors and testers
+- BlackArch Linux team for maintaining the tool repositories
+- Arch Linux community for package management tools
+- Contributors to the terminal UI libraries
 
-## Security Notice
+## Version History
 
-Always verify the authenticity of installation scripts and maintain proper security practices when installing system-level software.
+- 0.1: Initial release
+  - Basic installation functionality
+  - Modern terminal interface
+  - Error handling and logging
+
+## Contact
+
+For bugs, features, or questions:
+- GitHub Issues: [Project Issues Page](https://github.com/0xb0rn3/blackutility/issues)
+- Website: [https://github.com/0xb0rn3/blackutility](https://github.com/0xb0rn3/blackutility)
+
+## Disclaimer
+
+This tool is for educational and professional use in authorized environments only. Users are responsible for complying with applicable laws and regulations when using security tools.
