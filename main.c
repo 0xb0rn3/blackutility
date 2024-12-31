@@ -33,6 +33,8 @@
 #define MIN_DISK_SPACE 10737418240  // 10GB in bytes
 #define MAX_RETRIES 3
 #define TIMEOUT_SECONDS 300
+#define LOADER_WIDTH 50
+#define LOADER_UPDATE_INTERVAL 100000  // 100ms in microseconds
 
 // Enhanced ANSI color palette with modern colors
 #define ESC "\x1b"
@@ -122,6 +124,16 @@ void signal_handler(int signum);
 void get_terminal_width(int* width);
 void parse_package_info(const char* line, Package* pkg);
 void install_tools(void);
+
+typedef struct {
+    int total_packages;
+    int completed_packages;
+    char current_package[MAX_LINE_LENGTH];
+    int show_details;  // Toggle for detailed logging
+} GlobalProgress;
+
+// Create a global instance
+GlobalProgress g_progress = {0};
 
 int create_lock_file(void) {
     lock_fd = open(LOCK_FILE, O_CREAT | O_EXCL | O_RDWR, 0644);
@@ -424,74 +436,96 @@ int install_package(const char* package_name, Package* pkg) {
     
     return 0;
 }
+void update_unified_loader(const char* current_package, int force_update) {
+    static time_t last_update = 0;
+    time_t now = time(NULL);
+    
+    // Limit update frequency unless forced
+    if (!force_update && (now - last_update) < 1) {
+        return;
+    }
+    last_update = now;
+    
+    // Calculate progress
+    float percentage = (float)g_progress.completed_packages / g_progress.total_packages * 100;
+    int filled_width = (int)((percentage / 100.0) * LOADER_WIDTH);
+    
+    // Clear line and move to start
+    printf("\r\033[K");
+    
+    // Show unified progress bar
+    printf("%s%s%s Installing BlackArch Tools ", FG_CYAN, SYMBOL_INSTALL, RESET);
+    printf("[");
+    
+    for (int i = 0; i < LOADER_WIDTH; i++) {
+        if (i < filled_width) {
+            printf("%s%s", FG_CYAN, BLOCK_FULL);
+        } else if (i == filled_width) {
+            printf("%s%s", FG_CYAN, BLOCK_MEDIUM);
+        } else {
+            printf("%s%s", DIM, BLOCK_LIGHT);
+        }
+    }
+    
+    printf("%s] %5.1f%%", RESET, percentage);
+    
+    // Show current package in a subtle way
+    if (strlen(current_package) > 0) {
+        printf(" %s%s%s", DIM, current_package, RESET);
+    }
+    
+    fflush(stdout);
+}
 
-// Install tools with progress indication
 void install_tools(void) {
     if (!check_system_requirements()) {
         return;
     }
 
-    // Check available space
-    size_t available_space = get_available_disk_space("/");
-    if (available_space < MIN_DISK_SPACE) {
-        status_message("Insufficient disk space", "error");
-        return;
-    }
-
-    status_message("Generating list of BlackArch tools...", "info");
+    // Initialize global progress
+    g_progress.completed_packages = 0;
+    g_progress.show_details = 0;  // Set to 1 to enable detailed logging
     
-    // Enhanced tool list generation with retries
-    FILE* tool_list = NULL;
-    int retries = 0;
-    while (retries < MAX_RETRIES) {
-        if (execute_command("pacman -Sgg | grep blackarch | cut -d' ' -f2 | sort -u > " TEMP_FILE)) {
-            tool_list = fopen(TEMP_FILE, "r");
-            if (tool_list) break;
-        }
-        retries++;
-        sleep(1);
-    }
-
+    // Count total packages first
+    FILE* tool_list = fopen(TEMP_FILE, "r");
     if (!tool_list) {
-        status_message("Failed to generate tool list", "error");
+        status_message("Failed to open tool list", "error");
         return;
     }
     
-    int tool_count = 0;
     char line[MAX_LINE_LENGTH];
-    while (fgets(line, sizeof(line), tool_list) != NULL) {
-        tool_count++;
+    while (fgets(line, sizeof(line), tool_list)) {
+        if (strlen(line) > 1) {  // Ignore empty lines
+            g_progress.total_packages++;
+        }
     }
     rewind(tool_list);
     
-    ProgressBar progress = {
-        .width = PROGRESS_BAR_WIDTH,
-        .current = 0,
-        .total = tool_count,
-        .message = "Installing BlackArch tools",
-        .status = NULL
-    };
-    
-    Package current_package;
+    // Install packages with unified progress
     while (fgets(line, sizeof(line), tool_list) && keep_running) {
         line[strcspn(line, "\n")] = 0;
         
         if (strlen(line) > 0) {
+            strncpy(g_progress.current_package, line, MAX_LINE_LENGTH - 1);
+            
             char install_cmd[MAX_CMD_LENGTH];
             snprintf(install_cmd, sizeof(install_cmd), 
-                    "pacman -S --noconfirm --needed --overwrite=\"*\" %s", line);
+                    "pacman -S --noconfirm --needed --overwrite=\"*\" %s %s", 
+                    line,
+                    g_progress.show_details ? "" : "2>&1 >/dev/null");
             
-            parse_package_info(line, &current_package);
-            progress.current++;
-            show_modern_progress(&progress, &current_package);
+            update_unified_loader(line, 1);
             
             if (!execute_command(install_cmd)) {
-                status_message("Failed to install package", "error");
-                continue;
+                // Log error but continue with next package
+                log_message("Failed to install package", "error");
             }
+            
+            g_progress.completed_packages++;
+            update_unified_loader(line, 1);
         }
         
-        usleep(50000); // Smooth animation
+        usleep(LOADER_UPDATE_INTERVAL);
     }
     
     fclose(tool_list);
