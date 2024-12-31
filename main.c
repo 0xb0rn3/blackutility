@@ -85,6 +85,7 @@ const char* BANNER =
     FG_BLUE "         " SYMBOL_ARROW " Developed & Maintained by @0xb0rn3\n" RESET
     FG_MAGENTA "         " SYMBOL_LOCK " Stay Ethical. Stay Secure. Stay Vigilant.\n" RESET;
 
+
 void str_to_upper(char* str) {
     for(int i = 0; str[i]; i++) {
         str[i] = toupper((unsigned char)str[i]);
@@ -120,6 +121,7 @@ typedef struct {
 // Function prototypes
 void initialize_logging(void);
 void cleanup_logging(void);
+int generate_tool_list(void);
 void log_message(const char* message, const char* level);
 void print_modern_box(const char* text, const char* color, const char* symbol);
 void show_modern_progress(ProgressBar* bar, Package* pkg);
@@ -132,7 +134,7 @@ void signal_handler(int signum);
 void get_terminal_width(int* width);
 void parse_package_info(const char* line, Package* pkg);
 void install_tools(void);
-int generate_tool_list(void);
+
 
 typedef struct {
     int total_packages;
@@ -707,7 +709,7 @@ while (keep_running) {
         break;
     }
 
-    // Continue with system update
+    // Start with system update
     status_message("Updating system packages...", "info");
     if (!execute_command("pacman -Syyu --noconfirm")) {
         status_message("System update failed", "error");
