@@ -91,10 +91,10 @@ void str_to_upper(char* str) {
 }
 
 // Global variables
-FILE* log_fp = NULL;
 volatile sig_atomic_t keep_running = 1;
+volatile sig_atomic_t cleanup_needed = 0;
+FILE* log_fp = NULL;
 int lock_fd = -1;
-
 // Data structures for better organization
 typedef struct {
     int width;
@@ -216,14 +216,37 @@ void alarm_handler(int signum) {
     keep_running = 0;
 }
 
-// Initialize logging system
 void initialize_logging(void) {
+    // First, make sure the log directory exists
+    char log_dir[] = "/var/log";
+    if (access(log_dir, F_OK) != 0) {
+        // Try to create the directory if it doesn't exist
+        if (mkdir(log_dir, 0755) != 0 && errno != EEXIST) {
+            fprintf(stderr, "%sError creating log directory: %s%s\n", 
+                    FG_RED, strerror(errno), RESET);
+            return;
+        }
+    }
+    
+    // Try to open the log file for appending first
     log_fp = fopen(LOG_FILE, "a");
     if (!log_fp) {
-        fprintf(stderr, "%sError opening log file: %s%s\n", 
-                FG_RED, strerror(errno), RESET);
-        exit(1);
+        // If that fails, try to create it
+        log_fp = fopen(LOG_FILE, "w");
+        if (!log_fp) {
+            fprintf(stderr, "%sError opening log file: %s%s\n", 
+                    FG_RED, strerror(errno), RESET);
+            return;
+        }
+        // Set proper permissions on the new file
+        if (fchmod(fileno(log_fp), 0644) != 0) {
+            fprintf(stderr, "%sWarning: Could not set log file permissions%s\n",
+                    FG_YELLOW, RESET);
+        }
     }
+    
+    // Write initial log entry
+    log_message("Logging initialized", "info");
 }
 
 // Cleanup logging system
@@ -263,15 +286,16 @@ void parse_package_info(const char* line, Package* pkg) {
         char* first_space = strchr(line, ' ');
         if (first_space) {
             int name_len = first_space - line;
+            if (name_len >= MAX_LINE_LENGTH) {
+                name_len = MAX_LINE_LENGTH - 1;
+            }
             strncpy(pkg->name, line, name_len);
-            strcpy(pkg->status, "up-to-date");
+            pkg->name[name_len] = '\0';  // Ensure null-termination
+            strncpy(pkg->status, "up-to-date", MAX_LINE_LENGTH - 1);
+            pkg->status[MAX_LINE_LENGTH - 1] = '\0';
         }
-    } else {
-        strncpy(pkg->name, line, MAX_LINE_LENGTH - 1);
-        strcpy(pkg->status, "installing");
     }
 }
-
 // Print modern-style box with symbol
 void print_modern_box(const char* text, const char* color, const char* symbol) {
     int width;
@@ -417,31 +441,59 @@ int install_package(const char* package_name, Package* pkg) {
     char install_cmd[MAX_CMD_LENGTH];
     int retry_count = 0;
     
+    // Safety check: Make sure package_name isn't NULL
+    if (!package_name) {
+        log_message("Package name is NULL", "error");
+        return 0;
+    }
+    
+    // Check if package name is too long
+    // We subtract 100 to leave room for the command prefix and suffix
+    if (strlen(package_name) > MAX_CMD_LENGTH - 100) {
+        char error_msg[MAX_LINE_LENGTH];
+        snprintf(error_msg, sizeof(error_msg), 
+                "Package name too long: %s", package_name);
+        log_message(error_msg, "error");
+        return 0;
+    }
+    
     while (retry_count < MAX_RETRIES && keep_running) {
-        snprintf(install_cmd, sizeof(install_cmd),
+        // Build the command string safely
+        int cmd_result = snprintf(install_cmd, sizeof(install_cmd),
                 "pacman -S --noconfirm --needed --overwrite=\"*\" %s", 
                 package_name);
         
+        // Check if command string was built correctly
+        if (cmd_result >= sizeof(install_cmd) || cmd_result < 0) {
+            log_message("Failed to build install command", "error");
+            return 0;
+        }
+        
+        // Set timeout alarm
         alarm(TIMEOUT_SECONDS);
         
         if (execute_command(install_cmd)) {
-            alarm(0);
+            alarm(0);  // Clear the alarm
             pkg->install_time = time(NULL);
-            return 1;
+            return 1;  // Success!
         }
         
-        alarm(0);
+        alarm(0);  // Clear the alarm
         retry_count++;
-        sleep(2);
         
-        char retry_msg[MAX_LINE_LENGTH];
-        snprintf(retry_msg, sizeof(retry_msg),
-                "Retrying installation of %s (attempt %d/%d)",
-                package_name, retry_count + 1, MAX_RETRIES);
-        log_message(retry_msg, "warning");
+        if (retry_count < MAX_RETRIES) {
+            // Only sleep and log if we're going to retry
+            sleep(2);  // Wait before retrying
+            
+            char retry_msg[MAX_LINE_LENGTH];
+            snprintf(retry_msg, sizeof(retry_msg),
+                    "Retrying installation of %s (attempt %d/%d)",
+                    package_name, retry_count + 1, MAX_RETRIES);
+            log_message(retry_msg, "warning");
+        }
     }
     
-    return 0;
+    return 0;  // Installation failed after all retries
 }
 void update_unified_loader(const char* current_package, int force_update) {
     static time_t last_update = 0;
@@ -541,22 +593,32 @@ void install_tools(void) {
 
 // Main program entry point
 int main(void) {
-    // Create lock file to prevent multiple instances
+    // ====== Initialization Phase ======
+    
+    // Try to create lock file first - prevents multiple instances
     if (!create_lock_file()) {
+        fprintf(stderr, "Another instance is already running or cannot create lock\n");
         return 1;
     }
 
-    // Initialize systems
+    // Initialize core systems
     initialize_logging();
-    signal(SIGINT, signal_handler);
-    signal(SIGALRM, alarm_handler);
+    
+    // Set up signal handlers for graceful interruption
+    signal(SIGINT, signal_handler);   // Handle Ctrl+C
+    signal(SIGALRM, alarm_handler);   // Handle timeouts
+    signal(SIGTERM, signal_handler);  // Handle termination requests
+    
+    // Register cleanup function to run at exit
     atexit(cleanup_resources);
 
-    // Clear screen and show banner
+    // ====== Setup Phase ======
+    
+    // Clear screen and display program banner
     system("clear");
     printf("%s", BANNER);
-
-    // Check root privileges
+    
+    // Verify root privileges before proceeding
     if (!check_root_privileges()) {
         print_modern_box("ROOT PRIVILEGES REQUIRED", FG_RED, SYMBOL_LOCK);
         cleanup_resources();
@@ -564,55 +626,91 @@ int main(void) {
         return 1;
     }
 
-print_modern_box("System Modification Warning", FG_YELLOW, SYMBOL_WARNING);
-printf("%sType %sAGREE%s to continue or %sDISAGREE%s to cancel: %s", 
-       FG_WHITE, FG_GREEN, FG_WHITE, FG_RED, FG_WHITE, RESET);
+    // Display warning and get user confirmation
+    print_modern_box("System Modification Warning", FG_YELLOW, SYMBOL_WARNING);
+    printf("%sType %sAGREE%s to continue or %sDISAGREE%s to cancel: %s", 
+           FG_WHITE, FG_GREEN, FG_WHITE, FG_RED, FG_WHITE, RESET);
 
-char response[10];
-int c;
-while ((c = getchar()) != '\n' && c != EOF);
-
-if (fgets(response, sizeof(response), stdin) != NULL) {
-    response[strcspn(response, "\n")] = 0;
-    str_to_upper(response);
+    // Clear input buffer and get user response
+    char response[10];
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
     
-    if (strcmp(response, "AGREE") == 0) {
-        status_message("Starting installation...", "info");
-    } else if (strcmp(response, "DISAGREE") == 0) {
-        status_message("Operation cancelled by user", "warning");
+    if (fgets(response, sizeof(response), stdin) != NULL) {
+        response[strcspn(response, "\n")] = 0;
+        str_to_upper(response);
+        
+        if (strcmp(response, "AGREE") != 0) {
+            status_message("Operation cancelled by user", "warning");
+            cleanup_resources();
+            release_lock_file();
+            return 1;
+        }
+    } else {
+        status_message("Invalid input", "error");
         cleanup_resources();
         release_lock_file();
+        return 1;
+    }
+
+    // ====== Main Program Loop ======
+    
+    while (keep_running) {
+        // Check if we need to handle an interruption
+        if (cleanup_needed) {
+            printf("\n%sReceived interrupt signal, cleaning up...%s\n", 
+                   FG_YELLOW, RESET);
+            break;
+        }
+
+        // Start with system update
+        status_message("Updating system packages...", "info");
+        if (!execute_command("pacman -Syyu --noconfirm")) {
+            status_message("System update failed", "error");
+            break;
+        }
+
+        // If system update succeeded, proceed with tool installation
+        if (keep_running) {
+            // Create progress tracking structure
+            ProgressBar progress_bar = {
+                .width = PROGRESS_BAR_WIDTH,
+                .total = 100,  // Will be updated by install_tools
+                .current = 0,
+                .message = "Installing tools...",
+                .status = "in_progress",
+                .start_time = time(NULL)
+            };
+
+            // Perform tool installation
+            install_tools();
+
+            // Check if installation completed successfully
+            if (keep_running) {
+                print_modern_box("Installation Complete!", FG_GREEN, SYMBOL_SUCCESS);
+            }
+        }
+
+        // Break the loop after completing installation
+        // This ensures we only run through once unless interrupted
+        break;
+    }
+
+    // ====== Cleanup Phase ======
+    
+    // Perform cleanup operations
+    status_message("Cleaning up...", "info");
+    cleanup_resources();
+    
+    // Release the lock file last
+    release_lock_file();
+    
+    // Log completion status
+    if (cleanup_needed) {
+        log_message("Program terminated by user interrupt", "info");
         return 1;
     } else {
-        status_message("Invalid input - must type AGREE or DISAGREE", "error");
-        cleanup_resources();
-        release_lock_file();
-        return 1;
+        log_message("Program completed successfully", "info");
+        return 0;
     }
-} else {
-    status_message("Invalid input", "error");
-    cleanup_resources();
-    release_lock_file();
-    return 1;
-}
-    // Update system packages
-    status_message("Updating system packages...", "info");
-    if (!execute_command("pacman -Syyu --noconfirm")) {
-        status_message("System update failed", "error");
-        cleanup_resources();
-        release_lock_file();
-        return 1;
-    }
-
-    // Install tools with improved visuals
-    install_tools();
-
-    if (keep_running) {
-        print_modern_box("Installation Complete!", FG_GREEN, SYMBOL_SUCCESS);
-    }
-
-    // Cleanup and exit
-    cleanup_resources();
-    release_lock_file();
-    return 0;
 }
