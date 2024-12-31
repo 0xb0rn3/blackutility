@@ -189,6 +189,14 @@ void signal_handler(int signum) {
     exit(1);
 }
 
+// Handle operation timeouts
+void alarm_handler(int signum) {
+    (void)signum;  // Prevent unused parameter warning
+    log_message("Operation timed out", "error");
+    status_message("Operation timed out", "error");
+    keep_running = 0;
+}
+
 // Initialize logging system
 void initialize_logging(void) {
     log_fp = fopen(LOG_FILE, "a");
@@ -273,7 +281,7 @@ void print_modern_box(const char* text, const char* color, const char* symbol) {
 void show_modern_progress(ProgressBar* bar, Package* pkg) {
     get_terminal_width(&bar->total_width);
     int available_width = bar->total_width - 50;
-    int filled_width = (int)((float)bar->current / bar->total * available_width);
+    int filled_width = (int)(((float)bar->current / (float)bar->total) * available_width);
     float percentage = (float)bar->current / bar->total * 100;
     
     printf("\r\033[K");
@@ -385,6 +393,7 @@ void cleanup_resources(void) {
     release_lock_file();
 }
 
+// Install package with retry mechanism
 int install_package(const char* package_name, Package* pkg) {
     char install_cmd[MAX_CMD_LENGTH];
     int retry_count = 0;
@@ -394,18 +403,17 @@ int install_package(const char* package_name, Package* pkg) {
                 "pacman -S --noconfirm --needed --overwrite=\"*\" %s", 
                 package_name);
         
-        // Set alarm for timeout
         alarm(TIMEOUT_SECONDS);
         
         if (execute_command(install_cmd)) {
-            alarm(0);  // Cancel timeout
+            alarm(0);
             pkg->install_time = time(NULL);
             return 1;
         }
         
-        alarm(0);  // Cancel timeout
+        alarm(0);
         retry_count++;
-        sleep(2);  // Wait before retry
+        sleep(2);
         
         char retry_msg[MAX_LINE_LENGTH];
         snprintf(retry_msg, sizeof(retry_msg),
@@ -416,12 +424,14 @@ int install_package(const char* package_name, Package* pkg) {
     
     return 0;
 }
+
 // Install tools with progress indication
 void install_tools(void) {
     if (!check_system_requirements()) {
         return;
     }
-        // Check available space
+
+    // Check available space
     size_t available_space = get_available_disk_space("/");
     if (available_space < MIN_DISK_SPACE) {
         status_message("Insufficient disk space", "error");
@@ -490,12 +500,15 @@ void install_tools(void) {
 
 // Main program entry point
 int main(void) {
+    // Create lock file to prevent multiple instances
     if (!create_lock_file()) {
         return 1;
     }
+
     // Initialize systems
     initialize_logging();
     signal(SIGINT, signal_handler);
+    signal(SIGALRM, alarm_handler);
     atexit(cleanup_resources);
 
     // Clear screen and show banner
@@ -503,15 +516,13 @@ int main(void) {
     printf("%s", BANNER);
 
     // Check root privileges
-    if(!check_root_privileges()) {
+    if (!check_root_privileges()) {
         print_modern_box("ROOT PRIVILEGES REQUIRED", FG_RED, SYMBOL_LOCK);
+        cleanup_resources();
+        release_lock_file();
         return 1;
     }
-    
-    cleanup_resources();
-    release_lock_file();
-    return 0;
-}
+
     // System warning and confirmation
     print_modern_box("System Modification Warning", FG_YELLOW, SYMBOL_WARNING);
     printf("%sType %sAGREE%s to continue or %sDISAGREE%s to cancel: %s", 
@@ -519,8 +530,10 @@ int main(void) {
 
     char response[10];
     scanf("%9s", response);
-    if(strcmp(response, "AGREE") != 0) {
+    if (strcmp(response, "AGREE") != 0) {
         status_message("Operation cancelled by user", "warning");
+        cleanup_resources();
+        release_lock_file();
         return 1;
     }
 
@@ -528,6 +541,8 @@ int main(void) {
     status_message("Updating system packages...", "info");
     if (!execute_command("pacman -Syyu --noconfirm")) {
         status_message("System update failed", "error");
+        cleanup_resources();
+        release_lock_file();
         return 1;
     }
 
@@ -538,5 +553,8 @@ int main(void) {
         print_modern_box("Installation Complete!", FG_GREEN, SYMBOL_SUCCESS);
     }
 
+    // Cleanup and exit
+    cleanup_resources();
+    release_lock_file();
     return 0;
 }
