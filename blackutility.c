@@ -10,6 +10,10 @@
 #include <time.h>
 #include <errno.h>
 #include <signal.h>
+#include <sys/statvfs.h>
+#include <pwd.h>
+#include <limits.h>
+#include <fcntl.h>
 
 // Modern Unicode symbols for improved visual feedback
 #define SYMBOL_SUCCESS "✓"
@@ -24,6 +28,11 @@
 #define BLOCK_FULL "█"
 #define BLOCK_MEDIUM "▓"
 #define BLOCK_LIGHT "░"
+#define BACKUP_LOG "/var/log/blackutility.log.bak"
+#define LOCK_FILE "/var/lock/blackutility.lock"
+#define MIN_DISK_SPACE 10737418240  // 10GB in bytes
+#define MAX_RETRIES 3
+#define TIMEOUT_SECONDS 300
 
 // Enhanced ANSI color palette with modern colors
 #define ESC "\x1b"
@@ -75,6 +84,7 @@ const char* BANNER =
 // Global variables
 FILE* log_fp = NULL;
 volatile sig_atomic_t keep_running = 1;
+int lock_fd = -1;
 
 // Data structures for better organization
 typedef struct {
@@ -84,12 +94,17 @@ typedef struct {
     int total;
     const char* message;
     const char* status;
+    time_t start_time;
+    time_t estimated_completion;
 } ProgressBar;
 
 typedef struct {
     char name[MAX_LINE_LENGTH];
     char version[MAX_LINE_LENGTH];
     char status[MAX_LINE_LENGTH];
+    int retry_count;
+    time_t install_time;
+    size_t size_bytes;
 } Package;
 
 // Function prototypes
@@ -108,6 +123,63 @@ void get_terminal_width(int* width);
 void parse_package_info(const char* line, Package* pkg);
 void install_tools(void);
 
+int create_lock_file(void) {
+    lock_fd = open(LOCK_FILE, O_CREAT | O_EXCL | O_RDWR, 0644);
+    if (lock_fd < 0) {
+        if (errno == EEXIST) {
+            log_message("Another instance is already running", "error");
+        } else {
+            log_message("Failed to create lock file", "error");
+        }
+        return 0;
+    }
+    return 1;
+}
+
+void release_lock_file(void) {
+    if (lock_fd >= 0) {
+        close(lock_fd);
+        unlink(LOCK_FILE);
+    }
+}
+
+size_t get_available_disk_space(const char* path) {
+    struct statvfs stat;
+    if (statvfs(path, &stat) != 0) {
+        return 0;
+    }
+    return stat.f_bsize * stat.f_bavail;
+}
+
+int check_system_requirements(void) {
+    // Check disk space
+    size_t available = get_available_disk_space("/");
+    if (available < MIN_DISK_SPACE) {
+        status_message("Insufficient disk space (10GB required)", "error");
+        return 0;
+    }
+
+    // Check memory
+    FILE* meminfo = fopen("/proc/meminfo", "r");
+    if (meminfo) {
+        char line[256];
+        unsigned long mem_total = 0;
+        while (fgets(line, sizeof(line), meminfo)) {
+            if (strncmp(line, "MemTotal:", 9) == 0) {
+                sscanf(line, "MemTotal: %lu", &mem_total);
+                break;
+            }
+        }
+        fclose(meminfo);
+        
+        if (mem_total < 2097152) { // Less than 2GB RAM
+            status_message("Insufficient memory (2GB required)", "error");
+            return 0;
+        }
+    }
+
+    return 1;
+}
 // Signal handler for graceful shutdown
 void signal_handler(int signum) {
     keep_running = 0;
@@ -310,19 +382,68 @@ void cleanup_resources(void) {
     cleanup_logging();
     printf("%s", RESET);
     fflush(stdout);
+    release_lock_file();
 }
 
-// Install tools with progress indication
-void install_tools(void) {
-    status_message("Generating list of BlackArch tools...", "info");
-    if (!execute_command("pacman -Sgg | grep blackarch | cut -d' ' -f2 | sort -u > " TEMP_FILE)) {
-        status_message("Failed to generate tool list", "error");
-        return;
+int install_package(const char* package_name, Package* pkg) {
+    char install_cmd[MAX_CMD_LENGTH];
+    int retry_count = 0;
+    
+    while (retry_count < MAX_RETRIES && keep_running) {
+        snprintf(install_cmd, sizeof(install_cmd),
+                "pacman -S --noconfirm --needed --overwrite=\"*\" %s", 
+                package_name);
+        
+        // Set alarm for timeout
+        alarm(TIMEOUT_SECONDS);
+        
+        if (execute_command(install_cmd)) {
+            alarm(0);  // Cancel timeout
+            pkg->install_time = time(NULL);
+            return 1;
+        }
+        
+        alarm(0);  // Cancel timeout
+        retry_count++;
+        sleep(2);  // Wait before retry
+        
+        char retry_msg[MAX_LINE_LENGTH];
+        snprintf(retry_msg, sizeof(retry_msg),
+                "Retrying installation of %s (attempt %d/%d)",
+                package_name, retry_count + 1, MAX_RETRIES);
+        log_message(retry_msg, "warning");
     }
     
-    FILE* tool_list = fopen(TEMP_FILE, "r");
+    return 0;
+}
+// Install tools with progress indication
+void install_tools(void) {
+    if (!check_system_requirements()) {
+        return;
+    }
+        // Check available space
+    size_t available_space = get_available_disk_space("/");
+    if (available_space < MIN_DISK_SPACE) {
+        status_message("Insufficient disk space", "error");
+        return;
+    }
+
+    status_message("Generating list of BlackArch tools...", "info");
+    
+    // Enhanced tool list generation with retries
+    FILE* tool_list = NULL;
+    int retries = 0;
+    while (retries < MAX_RETRIES) {
+        if (execute_command("pacman -Sgg | grep blackarch | cut -d' ' -f2 | sort -u > " TEMP_FILE)) {
+            tool_list = fopen(TEMP_FILE, "r");
+            if (tool_list) break;
+        }
+        retries++;
+        sleep(1);
+    }
+
     if (!tool_list) {
-        status_message("Failed to read tool list", "error");
+        status_message("Failed to generate tool list", "error");
         return;
     }
     
@@ -369,6 +490,9 @@ void install_tools(void) {
 
 // Main program entry point
 int main(void) {
+    if (!create_lock_file()) {
+        return 1;
+    }
     // Initialize systems
     initialize_logging();
     signal(SIGINT, signal_handler);
@@ -383,7 +507,11 @@ int main(void) {
         print_modern_box("ROOT PRIVILEGES REQUIRED", FG_RED, SYMBOL_LOCK);
         return 1;
     }
-
+    
+    cleanup_resources();
+    release_lock_file();
+    return 0;
+}
     // System warning and confirmation
     print_modern_box("System Modification Warning", FG_YELLOW, SYMBOL_WARNING);
     printf("%sType %sAGREE%s to continue or %sDISAGREE%s to cancel: %s", 
