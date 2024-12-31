@@ -14,6 +14,7 @@
 #include <pwd.h>
 #include <limits.h>
 #include <fcntl.h>
+#include <ctype.h>
 
 // Modern Unicode symbols for improved visual feedback
 #define SYMBOL_SUCCESS "✓"
@@ -82,6 +83,12 @@ const char* BANNER =
     FG_CYAN "                      Version 0.3-ALFA\n" RESET
     FG_BLUE "         " SYMBOL_ARROW " Developed & Maintained by @0xb0rn3\n" RESET
     FG_MAGENTA "         " SYMBOL_LOCK " Stay Ethical. Stay Secure. Stay Vigilant.\n" RESET;
+
+void str_to_upper(char* str) {
+    for(int i = 0; str[i]; i++) {
+        str[i] = toupper((unsigned char)str[i]);
+    }
+}
 
 // Global variables
 FILE* log_fp = NULL;
@@ -557,20 +564,37 @@ int main(void) {
         return 1;
     }
 
-    // System warning and confirmation
-    print_modern_box("System Modification Warning", FG_YELLOW, SYMBOL_WARNING);
-    printf("%sType %sAGREE%s to continue or %sDISAGREE%s to cancel: %s", 
-           FG_WHITE, FG_GREEN, FG_WHITE, FG_RED, FG_WHITE, RESET);
+print_modern_box("System Modification Warning", FG_YELLOW, SYMBOL_WARNING);
+printf("%sType %sAGREE%s to continue or %sDISAGREE%s to cancel: %s", 
+       FG_WHITE, FG_GREEN, FG_WHITE, FG_RED, FG_WHITE, RESET);
 
-    char response[10];
-    scanf("%9s", response);
-    if (strcmp(response, "AGREE") != 0) {
+char response[10];
+int c;
+while ((c = getchar()) != '\n' && c != EOF);
+
+if (fgets(response, sizeof(response), stdin) != NULL) {
+    response[strcspn(response, "\n")] = 0;
+    str_to_upper(response);
+    
+    if (strcmp(response, "AGREE") == 0) {
+        status_message("Starting installation...", "info");
+    } else if (strcmp(response, "DISAGREE") == 0) {
         status_message("Operation cancelled by user", "warning");
         cleanup_resources();
         release_lock_file();
         return 1;
+    } else {
+        status_message("Invalid input - must type AGREE or DISAGREE", "error");
+        cleanup_resources();
+        release_lock_file();
+        return 1;
     }
-
+} else {
+    status_message("Invalid input", "error");
+    cleanup_resources();
+    release_lock_file();
+    return 1;
+}
     // Update system packages
     status_message("Updating system packages...", "info");
     if (!execute_command("pacman -Syyu --noconfirm")) {
