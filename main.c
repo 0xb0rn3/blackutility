@@ -579,12 +579,14 @@ int generate_tool_list(void) {
 
 void install_tools(void) {
     if (!check_system_requirements()) {
+        status_message("System requirements not met", "error");
         return;
     }
 
     // Initialize global progress
     g_progress.completed_packages = 0;
-    g_progress.show_details = 0;  // Set to 1 to enable detailed logging
+    g_progress.show_details = 0;
+    g_progress.total_packages = 0;  // Reset to ensure accurate counting
     
     // Count total packages first
     FILE* tool_list = fopen(TEMP_FILE, "r");
@@ -593,33 +595,58 @@ void install_tools(void) {
         return;
     }
     
+    // Count packages and validate file contents
     char line[MAX_LINE_LENGTH];
     while (fgets(line, sizeof(line), tool_list)) {
-        if (strlen(line) > 1) {  // Ignore empty lines
+        // Remove trailing newline and whitespace
+        line[strcspn(line, "\n")] = 0;
+        if (strlen(line) > 1) {  // Only count non-empty lines
             g_progress.total_packages++;
         }
     }
+    
+    if (g_progress.total_packages == 0) {
+        status_message("No packages found to install", "warning");
+        fclose(tool_list);
+        return;
+    }
+    
+    // Rewind file for installation
     rewind(tool_list);
     
     // Install packages with unified progress
     while (fgets(line, sizeof(line), tool_list) && keep_running) {
+        // Clean the line
         line[strcspn(line, "\n")] = 0;
         
         if (strlen(line) > 0) {
+            // Update current package name with bounds checking
             strncpy(g_progress.current_package, line, MAX_LINE_LENGTH - 1);
+            g_progress.current_package[MAX_LINE_LENGTH - 1] = '\0';
             
+            // Construct install command with proper error handling
             char install_cmd[MAX_CMD_LENGTH];
-            snprintf(install_cmd, sizeof(install_cmd), 
+            int ret = snprintf(install_cmd, sizeof(install_cmd), 
                     "pacman -S --noconfirm --needed --overwrite=\"*\" %s %s", 
                     line,
                     g_progress.show_details ? "" : "2>&1 >/dev/null");
             
+            if (ret < 0 || ret >= sizeof(install_cmd)) {
+                log_message("Command buffer overflow prevented", "warning");
+                continue;
+            }
+            
+            // Show progress before attempting install
             update_unified_loader(line, 1);
             
+            // Execute with timeout protection
+            alarm(TIMEOUT_SECONDS);
             if (!execute_command(install_cmd)) {
-                // Log error but continue with next package
-                log_message("Failed to install package", "error");
+                char error_msg[MAX_LINE_LENGTH];
+                snprintf(error_msg, sizeof(error_msg), "Failed to install: %s", line);
+                log_message(error_msg, "error");
             }
+            alarm(0);
             
             g_progress.completed_packages++;
             update_unified_loader(line, 1);
@@ -630,70 +657,93 @@ void install_tools(void) {
     
     fclose(tool_list);
     printf("\n");
+    
+    // Final status update
+    char completion_msg[MAX_LINE_LENGTH];
+    snprintf(completion_msg, sizeof(completion_msg), 
+            "Completed installation of %d/%d packages", 
+            g_progress.completed_packages, g_progress.total_packages);
+    status_message(completion_msg, "info");
 }
-
 // Main program entry point
 int main(void) {
-    // ====== Initialization Phase ======
-    
-    // Try to create lock file first - prevents multiple instances
+    // Initialization Phase
     if (!create_lock_file()) {
-        fprintf(stderr, "Another instance is already running or cannot create lock\n");
+        fprintf(stderr, "%sAnother instance is already running or cannot create lock%s\n",
+                FG_RED, RESET);
         return 1;
     }
 
-    // Initialize core systems
     initialize_logging();
     
-    // Set up signal handlers for graceful interruption
-    signal(SIGINT, signal_handler);   // Handle Ctrl+C
-    signal(SIGALRM, alarm_handler);   // Handle timeouts
-    signal(SIGTERM, signal_handler);  // Handle termination requests
+    // Signal handlers
+    signal(SIGINT, signal_handler);
+    signal(SIGALRM, alarm_handler);
+    signal(SIGTERM, signal_handler);
     
-    // Register cleanup function to run at exit
     atexit(cleanup_resources);
 
-    // ====== Setup Phase ======
-    
-    // Clear screen and display program banner
+    // Setup Phase
     system("clear");
     printf("%s", BANNER);
     
-    // Verify root privileges before proceeding
     if (!check_root_privileges()) {
         print_modern_box("ROOT PRIVILEGES REQUIRED", FG_RED, SYMBOL_LOCK);
-        cleanup_resources();
-        release_lock_file();
         return 1;
     }
 
-    // Display warning and get user confirmation
+    // User confirmation
     print_modern_box("System Modification Warning", FG_YELLOW, SYMBOL_WARNING);
     printf("%sType %sAGREE%s to continue or %sDISAGREE%s to cancel: %s", 
            FG_WHITE, FG_GREEN, FG_WHITE, FG_RED, FG_WHITE, RESET);
 
-    // Clear input buffer and get user response
-    char response[10];
+    // Clear input buffer and get response
     int c;
     while ((c = getchar()) != '\n' && c != EOF);
     
-    if (fgets(response, sizeof(response), stdin) != NULL) {
-        response[strcspn(response, "\n")] = 0;
-        str_to_upper(response);
-        
-        if (strcmp(response, "AGREE") != 0) {
-            status_message("Operation cancelled by user", "warning");
-            cleanup_resources();
-            release_lock_file();
-            return 1;
-        }
-    } else {
+    char response[10] = {0};  // Initialize to zeros
+    if (fgets(response, sizeof(response), stdin) == NULL) {
         status_message("Invalid input", "error");
-        cleanup_resources();
-        release_lock_file();
+        return 1;
+    }
+    
+    response[strcspn(response, "\n")] = 0;
+    str_to_upper(response);
+    
+    if (strcmp(response, "AGREE") != 0) {
+        status_message("Operation cancelled by user", "warning");
         return 1;
     }
 
+    // Main Installation Process
+    if (!generate_tool_list()) {
+        status_message("Failed to prepare tool list", "error");
+        return 1;
+    }
+
+    // Single system update
+    status_message("Updating system packages...", "info");
+    if (!execute_command("pacman -Syyu --noconfirm")) {
+        status_message("System update failed", "error");
+        return 1;
+    }
+
+    // Install tools
+    if (keep_running) {
+        install_tools();
+    }
+
+    // Cleanup and Status
+    status_message("Cleaning up...", "info");
+    
+    if (cleanup_needed) {
+        log_message("Program terminated by user interrupt", "info");
+        return 1;
+    }
+    
+    log_message("Program completed successfully", "info");
+    return 0;
+}
     // ====== Main Program Loop ======
     
 while (keep_running) {
