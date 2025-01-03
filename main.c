@@ -15,7 +15,8 @@
 #include <limits.h>
 #include <fcntl.h>
 #include <ctype.h>
-#include <sys/stat.h> 
+#include <sys/stat.h>
+
 // Modern Unicode symbols for improved visual feedback
 #define SYMBOL_SUCCESS "✓"
 #define SYMBOL_ERROR "✗"
@@ -29,13 +30,25 @@
 #define BLOCK_FULL "█"
 #define BLOCK_MEDIUM "▓"
 #define BLOCK_LIGHT "░"
+
+// File paths and constants
 #define BACKUP_LOG "/var/log/blackutility.log.bak"
 #define LOCK_FILE "/var/lock/blackutility.lock"
+#define LOG_FILE "/var/log/blackutility.log"
+#define TEMP_FILE "results.txt"
 #define MIN_DISK_SPACE 10737418240  // 10GB in bytes
 #define MAX_RETRIES 3
 #define TIMEOUT_SECONDS 300
 #define LOADER_WIDTH 50
 #define LOADER_UPDATE_INTERVAL 100000  // 100ms in microseconds
+#define MAX_CMD_LENGTH 1024
+#define MAX_LINE_LENGTH 256
+#define PROGRESS_BAR_WIDTH 40
+#define SPINNER_DELAY 100000 // Microseconds between spinner updates
+
+// Terminal handling structures
+static struct termios orig_termios;
+static int terminal_initialized = 0;
 
 // Enhanced ANSI color palette with modern colors
 #define ESC "\x1b"
@@ -61,14 +74,6 @@
 #define BG_GREEN      ESC "[48;2;80;250;123m"
 #define BG_BLUE       ESC "[48;2;98;114;164m"
 
-// Program constants
-#define LOG_FILE "/var/log/blackutility.log"
-#define MAX_CMD_LENGTH 1024
-#define MAX_LINE_LENGTH 256
-#define PROGRESS_BAR_WIDTH 40
-#define TEMP_FILE "results.txt"
-#define SPINNER_DELAY 100000 // Microseconds between spinner updates
-
 // Modern ASCII art banner with compact design
 const char* BANNER = 
     "\n" FG_CYAN BOLD
@@ -84,19 +89,13 @@ const char* BANNER =
     FG_BLUE "         " SYMBOL_ARROW " Developed & Maintained by @0xb0rn3\n" RESET
     FG_MAGENTA "         " SYMBOL_LOCK " Stay Ethical. Stay Secure. Stay Vigilant.\n" RESET;
 
-
-void str_to_upper(char* str) {
-    for(int i = 0; str[i]; i++) {
-        str[i] = toupper((unsigned char)str[i]);
-    }
-}
-
 // Global variables
 volatile sig_atomic_t keep_running = 1;
 volatile sig_atomic_t cleanup_needed = 0;
 FILE* log_fp = NULL;
 int lock_fd = -1;
-// Data structures for better organization
+
+// Data structures
 typedef struct {
     int width;
     int total_width;
@@ -117,155 +116,95 @@ typedef struct {
     size_t size_bytes;
 } Package;
 
-// Function prototypes
-void initialize_logging(void);
-void cleanup_logging(void);
-int generate_tool_list(void);
-void log_message(const char* message, const char* level);
-void print_modern_box(const char* text, const char* color, const char* symbol);
-void show_modern_progress(ProgressBar* bar, Package* pkg);
-void show_spinner(const char* message);
-void status_message(const char* message, const char* status);
-int execute_command(const char* command);
-int check_root_privileges(void);
-void cleanup_resources(void);
-void signal_handler(int signum);
-void get_terminal_width(int* width);
-void parse_package_info(const char* line, Package* pkg);
-void install_tools(void);
-void update_unified_loader(const char* current_package, int force_update);
-int create_lock_file(void);
-void release_lock_file(void);
-size_t get_available_disk_space(const char* path);
-int check_system_requirements(void);
-void alarm_handler(int signum);
-int install_package(const char* package_name, Package* pkg);
-
 typedef struct {
     int total_packages;
     int completed_packages;
     char current_package[MAX_LINE_LENGTH];
-    int show_details;  // Toggle for detailed logging
+    int show_details;
 } GlobalProgress;
 
-// Create a global instance
+// Global progress instance
 GlobalProgress g_progress = {0};
 
-int create_lock_file(void) {
+// Terminal handling functions
+void disable_raw_mode() {
+    if (terminal_initialized) {
+        tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+        terminal_initialized = 0;
+    }
+}
+
+int enable_raw_mode() {
+    if (tcgetattr(STDIN_FILENO, &orig_termios) == -1) {
+        perror("tcgetattr");
+        return -1;
+    }
+
+    atexit(disable_raw_mode);
+    
+    struct termios raw = orig_termios;
+    raw.c_lflag &= ~(ECHO | ICANON);
+    
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) {
+        perror("tcsetattr");
+        return -1;
+    }
+    
+    terminal_initialized = 1;
+    return 0;
+}
+
+// Helper functions
+void str_to_upper(char* str) {
+    for(int i = 0; str[i]; i++) {
+        str[i] = toupper((unsigned char)str[i]);
+    }
+}
+
+// File operations
+int create_lock_file() {
     lock_fd = open(LOCK_FILE, O_CREAT | O_EXCL | O_RDWR, 0644);
     if (lock_fd < 0) {
         if (errno == EEXIST) {
-            log_message("Another instance is already running", "error");
+            fprintf(stderr, "%sAnother instance is already running%s\n", FG_RED, RESET);
         } else {
-            log_message("Failed to create lock file", "error");
+            perror("Failed to create lock file");
         }
         return 0;
     }
     return 1;
 }
 
-void release_lock_file(void) {
+void release_lock_file() {
     if (lock_fd >= 0) {
         close(lock_fd);
         unlink(LOCK_FILE);
     }
 }
 
-size_t get_available_disk_space(const char* path) {
-    struct statvfs stat;
-    if (statvfs(path, &stat) != 0) {
-        return 0;
-    }
-    return stat.f_bsize * stat.f_bavail;
-}
-
-int check_system_requirements(void) {
-    // Check disk space
-    size_t available = get_available_disk_space("/");
-    if (available < MIN_DISK_SPACE) {
-        status_message("Insufficient disk space (10GB required)", "error");
-        return 0;
-    }
-
-    // Check memory
-    FILE* meminfo = fopen("/proc/meminfo", "r");
-    if (meminfo) {
-        char line[256];
-        unsigned long mem_total = 0;
-        while (fgets(line, sizeof(line), meminfo)) {
-            if (strncmp(line, "MemTotal:", 9) == 0) {
-                sscanf(line, "MemTotal: %lu", &mem_total);
-                break;
-            }
-        }
-        fclose(meminfo);
-        
-        if (mem_total < 2097152) { // Less than 2GB RAM
-            status_message("Insufficient memory (2GB required)", "error");
-            return 0;
-        }
-    }
-
-    return 1;
-}
-// Signal handler for graceful shutdown
-void signal_handler(int signum) {
-    keep_running = 0;
-    printf("\n%sReceived signal %d, cleaning up...%s\n", 
-           FG_YELLOW, signum, RESET);
-    cleanup_resources();
-    exit(1);
-}
-
-// Handle operation timeouts
-void alarm_handler(int signum) {
-    (void)signum;  // Prevent unused parameter warning
-    log_message("Operation timed out", "error");
-    status_message("Operation timed out", "error");
-    keep_running = 0;
-}
-
-void initialize_logging(void) {
-    // First, make sure the log directory exists
-    char log_dir[] = "/var/log";
-    if (access(log_dir, F_OK) != 0) {
-        // Try to create the directory if it doesn't exist
-        if (mkdir(log_dir, 0755) != 0 && errno != EEXIST) {
-            fprintf(stderr, "%sError creating log directory: %s%s\n", 
-                    FG_RED, strerror(errno), RESET);
-            return;
-        }
+// Initialize logging system
+void initialize_logging() {
+    // Backup existing log if present
+    if (access(LOG_FILE, F_OK) == 0) {
+        rename(LOG_FILE, BACKUP_LOG);
     }
     
-    // Try to open the log file for appending first
-    log_fp = fopen(LOG_FILE, "a");
+    log_fp = fopen(LOG_FILE, "w");
     if (!log_fp) {
-        // If that fails, try to create it
-        log_fp = fopen(LOG_FILE, "w");
-        if (!log_fp) {
-            fprintf(stderr, "%sError opening log file: %s%s\n", 
-                    FG_RED, strerror(errno), RESET);
-            return;
-        }
-        // Set proper permissions on the new file
-        if (fchmod(fileno(log_fp), 0644) != 0) {
-            fprintf(stderr, "%sWarning: Could not set log file permissions%s\n",
-                    FG_YELLOW, RESET);
-        }
+        perror("Failed to open log file");
+        return;
     }
     
-    // Write initial log entry
-    log_message("Logging initialized", "info");
+    // Set proper permissions
+    chmod(LOG_FILE, 0644);
 }
 
-// Cleanup logging system
-void cleanup_logging(void) {
+void cleanup_logging() {
     if (log_fp) {
         fclose(log_fp);
         log_fp = NULL;
     }
 }
-
 // Log message with timestamp and level
 void log_message(const char* message, const char* level) {
     if (!log_fp) return;
@@ -673,46 +612,55 @@ void install_tools(void) {
 
 // Main program entry point
 int main(void) {
-    // Initialization Phase
-    if (!create_lock_file()) {
-        fprintf(stderr, "%sAnother instance is already running or cannot create lock%s\n",
-                FG_RED, RESET);
+    // Initialize terminal
+    if (enable_raw_mode() == -1) {
+        fprintf(stderr, "Failed to initialize terminal\n");
         return 1;
     }
 
+    // Create lock file
+    if (!create_lock_file()) {
+        disable_raw_mode();
+        return 1;
+    }
+
+    // Initialize logging
     initialize_logging();
     
-    // Signal handlers
+    // Set up signal handlers
     signal(SIGINT, signal_handler);
     signal(SIGALRM, alarm_handler);
     signal(SIGTERM, signal_handler);
     
+    // Register cleanup
     atexit(cleanup_resources);
 
-    // Setup Phase
-    system("clear");
+    // Clear screen and show banner
+    printf("\x1b[2J\x1b[H");  // Clear screen and move cursor to home
     printf("%s", BANNER);
+    fflush(stdout);  // Ensure banner is displayed
     
+    // Check root privileges
     if (!check_root_privileges()) {
         print_modern_box("ROOT PRIVILEGES REQUIRED", FG_RED, SYMBOL_LOCK);
         return 1;
     }
 
-    // User confirmation
+    // Get user confirmation with proper input handling
     print_modern_box("System Modification Warning", FG_YELLOW, SYMBOL_WARNING);
     printf("%sType %sAGREE%s to continue or %sDISAGREE%s to cancel: %s", 
            FG_WHITE, FG_GREEN, FG_WHITE, FG_RED, FG_WHITE, RESET);
+    fflush(stdout);
 
-    // Clear input buffer and get response
-    int c;
-    while ((c = getchar()) != '\n' && c != EOF);
-    
-    char response[10] = {0};  // Initialize to zeros
+    // Read user input with timeout
+    char response[10] = {0};
+    alarm(30);  // 30 second timeout
     if (fgets(response, sizeof(response), stdin) == NULL) {
-        status_message("Invalid input", "error");
+        status_message("Input timeout or error", "error");
         return 1;
     }
-    
+    alarm(0);
+
     response[strcspn(response, "\n")] = 0;
     str_to_upper(response);
     
@@ -721,62 +669,20 @@ int main(void) {
         return 1;
     }
 
-    // Main Installation Process
+    // Main installation process
     if (!generate_tool_list()) {
-        status_message("Failed to prepare tool list", "error");
+        status_message("Failed to generate tool list", "error");
         return 1;
     }
 
-    // Handle the main program loop
-    while (keep_running) {
-        if (cleanup_needed) {
-            printf("\n%sReceived interrupt signal, cleaning up...%s\n", 
-                   FG_YELLOW, RESET);
-            break;
-        }
+    install_tools();
 
-        // Start with system update
-        status_message("Updating system packages...", "info");
-        if (!execute_command("pacman -Syyu --noconfirm")) {
-            status_message("System update failed", "error");
-            break;
-        }
-
-        // If system update succeeded, proceed with tool installation
-        if (keep_running) {
-            // Create progress tracking structure
-            ProgressBar progress_bar = {
-                .width = PROGRESS_BAR_WIDTH,
-                .total = 100,  // Will be updated by install_tools
-                .current = 0,
-                .message = "Installing tools...",
-                .status = "in_progress",
-                .start_time = time(NULL)
-            };
-
-            // Perform tool installation
-            install_tools();
-
-            // Check if installation completed successfully
-            if (keep_running) {
-                print_modern_box("Installation Complete!", FG_GREEN, SYMBOL_SUCCESS);
-            }
-        }
-
-        // Break the loop after completing installation
-        break;
-    }
-
-    // Cleanup Phase
+    // Cleanup and exit
     status_message("Cleaning up...", "info");
     cleanup_resources();
     
-    // Log completion status
-    if (cleanup_needed) {
-        log_message("Program terminated by user interrupt", "info");
-        return 1;
-    }
+    // Restore terminal
+    disable_raw_mode();
     
-    log_message("Program completed successfully", "info");
     return 0;
 }
