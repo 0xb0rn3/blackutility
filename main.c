@@ -78,15 +78,18 @@
 #define BG_BLUE       ESC "[48;2;98;114;164m"
 
 /* Program Banner */
+/* Program Banner */
 const char* BANNER = 
     "\n" FG_CYAN BOLD
-    "╔╗ ╦  ╔═╗╔═╗╦╔═╦ ╦╔╦╗╦╦  ╦╔╦╗╦ ╦\n"
-    "╠╩╗║  ╠═╣║  ╠╩╗║ ║ ║ ║║  ║ ║ └┬┘\n"
-    "╚═╝╩═╝╩ ╩╚═╝╩ ╩╚═╝ ╩ ╩╩═╝╩ ╩  ┴ \n"
+    "                ╔╗ ╦  ╔═╗╔═╗╦╔═╦ ╦╔╦╗╦╦  ╦╔╦╗╦ ╦\n"
+    "                ╠╩╗║  ╠═╣║  ╠╩╗║ ║ ║ ║║  ║ ║ └┬┘\n"
+    "                ╚═╝╩═╝╩ ╩╚═╝╩ ╩╚═╝ ╩ ╩╩═╝╩ ╩  ┴ \n"
     RESET
-    FG_WHITE "    [ Security Arsenal for Arch Linux ]\n"
-    FG_CYAN "           Version 0.3-ALFA\n" RESET
-    FG_BLUE "    " SYMBOL_ARROW " by @0xb0rn3\n" RESET;
+    FG_WHITE "                    [ Security Arsenal for Arch Linux ]\n"
+    FG_CYAN "                           Version 0.3-ALFA\n" RESET
+    FG_BLUE "                    " SYMBOL_ARROW " by @0xb0rn3\n"
+    "                    " SYMBOL_INFO " 0xb0rn3@proton.me\n" 
+    "                    " SYMBOL_ARROW " twitter.com/0xb0rn3\n" RESET;
 
 /* Global Variables */
 static struct termios orig_termios;
