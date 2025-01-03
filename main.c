@@ -780,21 +780,3 @@ int main(void) {
     log_message("Program completed successfully", "info");
     return 0;
 }
-    // ====== Cleanup Phase ======
-    
-    // Perform cleanup operations
-    status_message("Cleaning up...", "info");
-    cleanup_resources();
-    
-    // Release the lock file last
-    release_lock_file();
-    
-    // Log completion status
-    if (cleanup_needed) {
-        log_message("Program terminated by user interrupt", "info");
-        return 1;
-    } else {
-        log_message("Program completed successfully", "info");
-        return 0;
-    }
-}
