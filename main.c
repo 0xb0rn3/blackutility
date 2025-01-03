@@ -25,6 +25,10 @@
 #define LOCK_FILE "/var/lock/blackutility.lock"
 #define LOG_FILE "/var/log/blackutility.log"
 #define TEMP_FILE "results.txt"
+#define KALI_SOURCES_FILE "/etc/apt/sources.list.d/blackutil.list"
+#define KALI_KEYRING_URL "https://http.kali.org/pool/main/k/kali-archive-keyring/kali-archive-keyring_2024.1_all.deb"
+#define KALI_REPO_LINE "deb http://http.kali.org/kali kali-rolling main contrib non-free non-free-firmware"
+#define TEMP_KEYRING_DEB "/tmp/kali-keyring.deb"
 
 /* System Requirements */
 #define MIN_DISK_SPACE 10737418240  // 10GB in bytes
@@ -78,18 +82,24 @@
 #define BG_BLUE       ESC "[48;2;98;114;164m"
 
 /* Program Banner */
-/* Program Banner */
 const char* BANNER = 
     "\n" FG_CYAN BOLD
     "                ╔╗ ╦  ╔═╗╔═╗╦╔═╦ ╦╔╦╗╦╦  ╦╔╦╗╦ ╦\n"
     "                ╠╩╗║  ╠═╣║  ╠╩╗║ ║ ║ ║║  ║ ║ └┬┘\n"
     "                ╚═╝╩═╝╩ ╩╚═╝╩ ╩╚═╝ ╩ ╩╩═╝╩ ╩  ┴ \n"
     RESET
-    FG_WHITE "                    [ Security Arsenal for Arch Linux ]\n"
-    FG_CYAN "                           Version 0.3-ALFA\n" RESET
+    FG_WHITE "                [ Universal Security Arsenal & Package Manager ]\n"
+    FG_WHITE "                [ For Arch Linux & Debian-based Systems ]\n"
+    FG_CYAN "                        Version 1.0.0-STABLE\n" RESET
     FG_BLUE "                    " SYMBOL_ARROW " by @0xb0rn3\n"
     "                    " SYMBOL_INFO " 0xb0rn3@proton.me\n" 
     "                    " SYMBOL_ARROW " twitter.com/0xb0rn3\n" RESET;
+
+typedef enum {
+    SYSTEM_UNKNOWN,
+    SYSTEM_ARCH,
+    SYSTEM_DEBIAN
+} SystemType;
 
 /* Global Variables */
 static struct termios orig_termios;
@@ -407,6 +417,66 @@ void str_to_upper(char* str) {
     }
 }
 
+/* System Detection Functions */
+SystemType detect_system_type() {
+    FILE* os_release = fopen("/etc/os-release", "r");
+    if (!os_release) {
+        log_message("Failed to detect OS type", "error");
+        return SYSTEM_UNKNOWN;
+    }
+
+    char line[MAX_LINE_LENGTH];
+    SystemType type = SYSTEM_UNKNOWN;
+
+    while (fgets(line, sizeof(line), os_release)) {
+        if (strstr(line, "ID=arch")) {
+            type = SYSTEM_ARCH;
+            break;
+        } else if (strstr(line, "ID=debian") || strstr(line, "ID=ubuntu") || 
+                   strstr(line, "ID=kali") || strstr(line, "ID=parrot")) {
+            type = SYSTEM_DEBIAN;
+            break;
+        }
+    }
+    
+    fclose(os_release);
+    return type;
+}
+
+int setup_kali_repository() {
+    log_message("Setting up Kali Linux repository...", "info");
+
+    char wget_cmd[MAX_CMD_LENGTH];
+    snprintf(wget_cmd, sizeof(wget_cmd), 
+            "wget -q %s -O %s", KALI_KEYRING_URL, TEMP_KEYRING_DEB);
+    
+    if (!execute_command(wget_cmd)) {
+        log_message("Failed to download Kali keyring", "error");
+        return 0;
+    }
+
+    if (!execute_command("dpkg -i " TEMP_KEYRING_DEB)) {
+        log_message("Failed to install Kali keyring", "error");
+        return 0;
+    }
+
+    FILE* sources = fopen(KALI_SOURCES_FILE, "w");
+    if (!sources) {
+        log_message("Failed to create Kali sources file", "error");
+        return 0;
+    }
+
+    fprintf(sources, "%s\n", KALI_REPO_LINE);
+    fclose(sources);
+
+    if (!execute_command("apt-get update")) {
+        log_message("Failed to update package lists", "error");
+        return 0;
+    }
+
+    return 1;
+}
+
 /* Package Management Functions */
 int execute_command(const char* command) {
     int status = system(command);
@@ -430,45 +500,78 @@ int execute_command(const char* command) {
 }
 
 int generate_tool_list(void) {
-    log_message("Querying BlackArch repository...", "info");
+    SystemType sys_type = detect_system_type();
     
-    // First, check if BlackArch repository is enabled
-    if (!execute_command("grep -q '\\[blackarch\\]' /etc/pacman.conf")) {
-        log_message("BlackArch repository not found. Adding repository...", "info");
-        
-        // Add BlackArch repository
-        const char* repo_cmd = "echo -e '[blackarch]\\nServer = https://blackarch.org/blackarch/$repo/os/$arch' >> /etc/pacman.conf";
-        if (!execute_command(repo_cmd)) {
-            log_message("Failed to add BlackArch repository", "error");
+    switch (sys_type) {
+        case SYSTEM_ARCH:
+            log_message("Setting up BlackArch repository...", "info");
+            
+            if (!execute_command("grep -q '\\[blackarch\\]' /etc/pacman.conf")) {
+                const char* repo_cmd = "echo -e '[blackarch]\\nServer = https://blackarch.org/blackarch/$repo/os/$arch' >> /etc/pacman.conf";
+                if (!execute_command(repo_cmd)) {
+                    log_message("Failed to add BlackArch repository", "error");
+                    return 0;
+                }
+                
+                if (!execute_command("pacman-key --recv-key 4345771566D76038C7FEB43863EC0ADBEA87E4E3 && "
+                                   "pacman-key --lsign-key 4345771566D76038C7FEB43863EC0ADBEA87E4E3")) {
+                    log_message("Failed to install BlackArch keyring", "error");
+                    return 0;
+                }
+            }
+            
+            if (!execute_command("pacman -Sy")) {
+                log_message("Failed to update package database", "error");
+                return 0;
+            }
+            
+            if (!execute_command("pacman -Sg | grep -i security > " TEMP_FILE)) {
+                log_message("Failed to generate tool list", "error");
+                return 0;
+            }
+            break;
+            
+        case SYSTEM_DEBIAN:
+            if (!setup_kali_repository()) {
+                return 0;
+            }
+            
+            FILE* tool_file = fopen(TEMP_FILE, "w");
+            if (!tool_file) {
+                log_message("Failed to create tool list", "error");
+                return 0;
+            }
+            
+            const char* categories[] = {
+                "information-gathering", "vulnerability-analysis", 
+                "wireless-attacks", "web-applications", "exploitation-tools",
+                "forensics-tools", "stress-testing", "password-attacks",
+                "reverse-engineering", "sniffing-spoofing", NULL
+            };
+            
+            for (int i = 0; categories[i] != NULL; i++) {
+                char cmd[MAX_CMD_LENGTH];
+                snprintf(cmd, sizeof(cmd),
+                        "apt-cache search '%s' | grep -i 'kali' >> " TEMP_FILE,
+                        categories[i]);
+                execute_command(cmd);
+            }
+            
+            fclose(tool_file);
+            break;
+            
+        default:
+            log_message("Unsupported system type", "error");
             return 0;
-        }
-        
-        // Install BlackArch keyring
-        if (!execute_command("pacman-key --recv-key 4345771566D76038C7FEB43863EC0ADBEA87E4E3 && "
-                           "pacman-key --lsign-key 4345771566D76038C7FEB43863EC0ADBEA87E4E3")) {
-            log_message("Failed to install BlackArch keyring", "error");
-            return 0;
-        }
-    }
-    
-    // Update package database
-    if (!execute_command("pacman -Sy")) {
-        log_message("Failed to update package database", "error");
-        return 0;
-    }
-    
-    // Generate tool list
-    if (!execute_command("pacman -Sl blackarch | awk '{print $2}' > " TEMP_FILE)) {
-        log_message("Failed to generate tool list", "error");
-        return 0;
     }
     
     return 1;
 }
 
 void install_tools(void) {
-    if (!check_system_requirements()) {
-        log_message("System requirements not met", "error");
+    SystemType sys_type = detect_system_type();
+    if (sys_type == SYSTEM_UNKNOWN) {
+        log_message("Unsupported system type", "error");
         return;
     }
 
@@ -513,10 +616,16 @@ void install_tools(void) {
             float progress = ((float)g_progress.completed_packages / g_progress.total_packages) * 100.0;
             show_smooth_progress(line, progress);
             
-            char install_cmd[MAX_CMD_LENGTH];
-            snprintf(install_cmd, sizeof(install_cmd),
-                    "pacman -S --noconfirm --needed --overwrite=\"*\" %s >/dev/null 2>%s",
-                    line, PACMAN_OUTPUT_FILE);
+    char install_cmd[MAX_CMD_LENGTH];
+    if (sys_type == SYSTEM_ARCH) {
+        snprintf(install_cmd, sizeof(install_cmd),
+                "pacman -S --noconfirm --needed --overwrite=\"*\" %s >/dev/null 2>%s",
+                line, PACMAN_OUTPUT_FILE);
+    } else {
+        snprintf(install_cmd, sizeof(install_cmd),
+                "DEBIAN_FRONTEND=noninteractive apt-get install -y %s >/dev/null 2>%s",
+                line, PACMAN_OUTPUT_FILE);
+    }
             
             if (!execute_command(install_cmd)) {
                 char error_msg[MAX_LINE_LENGTH];
@@ -546,6 +655,9 @@ void install_tools(void) {
 void cleanup_resources(void) {
     if (access(TEMP_FILE, F_OK) != -1) {
         remove(TEMP_FILE);
+    }
+    if (access(TEMP_KEYRING_DEB, F_OK) != -1) {
+        remove(TEMP_KEYRING_DEB);
     }
     cleanup_logging();
     printf("%s", RESET);
