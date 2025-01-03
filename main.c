@@ -16,6 +16,7 @@
 #include <fcntl.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#include <sys/sysinfo.h>
 
 // Modern Unicode symbols for improved visual feedback
 #define SYMBOL_SUCCESS "✓"
@@ -37,6 +38,7 @@
 #define LOG_FILE "/var/log/blackutility.log"
 #define TEMP_FILE "results.txt"
 #define MIN_DISK_SPACE 10737418240  // 10GB in bytes
+#define MIN_RAM 4096                 // 4GB in MB
 #define MAX_RETRIES 3
 #define TIMEOUT_SECONDS 300
 #define LOADER_WIDTH 50
@@ -89,13 +91,27 @@ const char* BANNER =
     FG_BLUE "         " SYMBOL_ARROW " Developed & Maintained by @0xb0rn3\n" RESET
     FG_MAGENTA "         " SYMBOL_LOCK " Stay Ethical. Stay Secure. Stay Vigilant.\n" RESET;
 
-// Global variables
+// Global variables and structures
 volatile sig_atomic_t keep_running = 1;
 volatile sig_atomic_t cleanup_needed = 0;
 FILE* log_fp = NULL;
 int lock_fd = -1;
 
-// Data structures
+// Enhanced output control structure
+typedef struct {
+    int suppress_output;
+    char buffer[OUTPUT_BUFFER_SIZE];
+    FILE* output_file;
+} OutputControl;
+
+// Global output control instance
+OutputControl g_output = {
+    .suppress_output = 1,
+    .buffer = {0},
+    .output_file = NULL
+};
+
+// Progress tracking structures
 typedef struct {
     int width;
     int total_width;
@@ -125,6 +141,149 @@ typedef struct {
 
 // Global progress instance
 GlobalProgress g_progress = {0};
+
+// Function to redirect command output
+void redirect_output(void) {
+    g_output.output_file = fopen(PACMAN_OUTPUT_FILE, "w+");
+    if (g_output.output_file) {
+        dup2(fileno(g_output.output_file), STDERR_FILENO);
+    }
+}
+
+// Function to restore output
+void restore_output(void) {
+    if (g_output.output_file) {
+        fclose(g_output.output_file);
+        g_output.output_file = NULL;
+    }
+}
+
+// Enhanced progress bar with smoother animation
+void show_smooth_progress(const char* package, float percentage) {
+    static int last_percentage = -1;
+    int current_percentage = (int)percentage;
+    
+    if (current_percentage == last_percentage && package == NULL) {
+        return;
+    }
+    last_percentage = current_percentage;
+    
+    printf("\r\033[K");
+    printf("%s%s%s ", FG_CYAN, SYMBOL_INSTALL, RESET);
+    
+    if (package) {
+        printf("%-30.30s ", package);
+    }
+    
+    printf("[");
+    int bar_width = PROGRESS_BAR_WIDTH;
+    int filled = (int)((percentage * bar_width) / 100.0);
+    
+    for (int i = 0; i < bar_width; i++) {
+        if (i < filled) {
+            printf("%s%s", FG_CYAN, BLOCK_FULL);
+        } else if (i == filled) {
+            printf("%s%s", FG_CYAN, BLOCK_MEDIUM);
+        } else {
+            printf("%s%s", DIM, BLOCK_LIGHT);
+        }
+    }
+    
+    printf("%s] %3d%%", RESET, current_percentage);
+    
+    static char spinner[] = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+    static int spinner_pos = 0;
+    printf(" %s%c%s", FG_CYAN, spinner[spinner_pos++ % strlen(spinner)], RESET);
+    
+    fflush(stdout);
+}
+// Forward declarations for signal handlers
+void signal_handler(int signum);
+void alarm_handler(int signum);
+
+// Signal handler implementations
+void signal_handler(int signum) {
+    keep_running = 0;
+    cleanup_needed = 1;
+    
+    // Log the signal received
+    char signal_msg[MAX_LINE_LENGTH];
+    snprintf(signal_msg, sizeof(signal_msg), "Received signal %d", signum);
+    log_message(signal_msg, "info");
+    
+    if (signum == SIGINT || signum == SIGTERM) {
+        printf("\n%sOperation cancelled by user%s\n", FG_YELLOW, RESET);
+    }
+}
+
+void alarm_handler(int signum) {
+    (void)signum;  // Unused parameter
+    log_message("Operation timed out", "error");
+    keep_running = 0;
+    cleanup_needed = 1;
+}
+
+// System requirements check function
+int check_system_requirements(void) {
+    // Check available disk space
+    struct statvfs fs_stats;
+    if (statvfs("/", &fs_stats) != 0) {
+        log_message("Failed to check disk space", "error");
+        return 0;
+    }
+    
+    unsigned long long available_space = fs_stats.f_bsize * fs_stats.f_bavail;
+    if (available_space < MIN_DISK_SPACE) {
+        char space_msg[MAX_LINE_LENGTH];
+        snprintf(space_msg, sizeof(space_msg),
+                "Insufficient disk space. Required: %.2f GB, Available: %.2f GB",
+                (double)MIN_DISK_SPACE / (1024*1024*1024),
+                (double)available_space / (1024*1024*1024));
+        log_message(space_msg, "error");
+        return 0;
+    }
+    
+    // Check RAM
+    struct sysinfo si;
+    if (sysinfo(&si) != 0) {
+        log_message("Failed to check system memory", "error");
+        return 0;
+    }
+    
+    unsigned long total_ram_mb = (si.totalram * si.mem_unit) / (1024*1024);
+    if (total_ram_mb < MIN_RAM) {
+        char ram_msg[MAX_LINE_LENGTH];
+        snprintf(ram_msg, sizeof(ram_msg),
+                "Insufficient RAM. Required: %d MB, Available: %lu MB",
+                MIN_RAM, total_ram_mb);
+        log_message(ram_msg, "error");
+        return 0;
+    }
+    
+    // Check if running on Arch Linux
+    FILE* os_release = fopen("/etc/os-release", "r");
+    if (!os_release) {
+        log_message("Failed to check OS type", "error");
+        return 0;
+    }
+    
+    char line[MAX_LINE_LENGTH];
+    int is_arch = 0;
+    while (fgets(line, sizeof(line), os_release)) {
+        if (strstr(line, "ID=arch")) {
+            is_arch = 1;
+            break;
+        }
+    }
+    fclose(os_release);
+    
+    if (!is_arch) {
+        log_message("This utility requires Arch Linux", "error");
+        return 0;
+    }
+    
+    return 1;
+}
 
 // Terminal handling functions
 void disable_raw_mode() {
@@ -521,30 +680,66 @@ int generate_tool_list(void) {
     return 1;
 }
 
+// Enhanced progress bar with smoother animation
+void show_smooth_progress(const char* package, float percentage) {
+    static int last_percentage = -1;
+    int current_percentage = (int)percentage;
+    
+    if (current_percentage == last_percentage && package == NULL) {
+        return;
+    }
+    last_percentage = current_percentage;
+    
+    printf("\r\033[K");
+    printf("%s%s%s ", FG_CYAN, SYMBOL_INSTALL, RESET);
+    
+    if (package) {
+        printf("%-30.30s ", package);
+    }
+    
+    printf("[");
+    int bar_width = PROGRESS_BAR_WIDTH;
+    int filled = (int)((percentage * bar_width) / 100.0);
+    
+    for (int i = 0; i < bar_width; i++) {
+        if (i < filled) {
+            printf("%s%s", FG_CYAN, BLOCK_FULL);
+        } else if (i == filled) {
+            printf("%s%s", FG_CYAN, BLOCK_MEDIUM);
+        } else {
+            printf("%s%s", DIM, BLOCK_LIGHT);
+        }
+    }
+    
+    printf("%s] %3d%%", RESET, current_percentage);
+    
+    static char spinner[] = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+    static int spinner_pos = 0;
+    printf(" %s%c%s", FG_CYAN, spinner[spinner_pos++ % strlen(spinner)], RESET);
+    
+    fflush(stdout);
+}
+// Enhanced install_tools function
 void install_tools(void) {
     if (!check_system_requirements()) {
         status_message("System requirements not met", "error");
         return;
     }
 
-    // Initialize global progress
     g_progress.completed_packages = 0;
     g_progress.show_details = 0;
-    g_progress.total_packages = 0;  // Reset to ensure accurate counting
     
-    // Count total packages first
     FILE* tool_list = fopen(TEMP_FILE, "r");
     if (!tool_list) {
         status_message("Failed to open tool list", "error");
         return;
     }
     
-    // Count packages and validate file contents
+    // Count total packages
     char line[MAX_LINE_LENGTH];
     while (fgets(line, sizeof(line), tool_list)) {
-        // Remove trailing newline and whitespace
         line[strcspn(line, "\n")] = 0;
-        if (strlen(line) > 1) {  // Only count non-empty lines
+        if (strlen(line) > 1) {
             g_progress.total_packages++;
         }
     }
@@ -555,106 +750,93 @@ void install_tools(void) {
         return;
     }
     
-    // Rewind file for installation
     rewind(tool_list);
+    redirect_output();
     
-    // Install packages with unified progress
+    printf("\033[2J\033[H");
+    printf("%s", BANNER);
+    show_smooth_progress("Preparing...", 0.0);
+    
     while (fgets(line, sizeof(line), tool_list) && keep_running) {
-        // Clean the line
         line[strcspn(line, "\n")] = 0;
         
         if (strlen(line) > 0) {
-            // Update current package name with bounds checking
             strncpy(g_progress.current_package, line, MAX_LINE_LENGTH - 1);
             g_progress.current_package[MAX_LINE_LENGTH - 1] = '\0';
             
-            // Construct install command with proper error handling
+            float progress = ((float)g_progress.completed_packages / g_progress.total_packages) * 100.0;
+            show_smooth_progress(line, progress);
+            
             char install_cmd[MAX_CMD_LENGTH];
-            int ret = snprintf(install_cmd, sizeof(install_cmd), 
-                    "pacman -S --noconfirm --needed --overwrite=\"*\" %s %s", 
-                    line,
-                    g_progress.show_details ? "" : "2>&1 >/dev/null");
+            snprintf(install_cmd, sizeof(install_cmd),
+                    "pacman -S --noconfirm --needed --overwrite=\"*\" %s >/dev/null 2>%s",
+                    line, PACMAN_OUTPUT_FILE);
             
-            if (ret < 0 || ret >= sizeof(install_cmd)) {
-                log_message("Command buffer overflow prevented", "warning");
-                continue;
-            }
-            
-            // Show progress before attempting install
-            update_unified_loader(line, 1);
-            
-            // Execute with timeout protection
-            alarm(TIMEOUT_SECONDS);
             if (!execute_command(install_cmd)) {
                 char error_msg[MAX_LINE_LENGTH];
                 snprintf(error_msg, sizeof(error_msg), "Failed to install: %s", line);
                 log_message(error_msg, "error");
             }
-            alarm(0);
             
             g_progress.completed_packages++;
-            update_unified_loader(line, 1);
+            usleep(LOADER_UPDATE_INTERVAL);
         }
-        
-        usleep(LOADER_UPDATE_INTERVAL);
     }
     
-    fclose(tool_list);
+    show_smooth_progress("Installation Complete", 100.0);
     printf("\n");
     
-    // Final status update
+    fclose(tool_list);
+    restore_output();
+    
     char completion_msg[MAX_LINE_LENGTH];
-    snprintf(completion_msg, sizeof(completion_msg), 
-            "Completed installation of %d/%d packages", 
+    snprintf(completion_msg, sizeof(completion_msg),
+            "Completed installation of %d/%d packages",
             g_progress.completed_packages, g_progress.total_packages);
     status_message(completion_msg, "info");
 }
 
 // Main program entry point
 int main(void) {
-    // Initialize terminal
     if (enable_raw_mode() == -1) {
         fprintf(stderr, "Failed to initialize terminal\n");
         return 1;
     }
 
-    // Create lock file
     if (!create_lock_file()) {
         disable_raw_mode();
         return 1;
     }
 
-    // Initialize logging
     initialize_logging();
     
-    // Set up signal handlers
     signal(SIGINT, signal_handler);
     signal(SIGALRM, alarm_handler);
     signal(SIGTERM, signal_handler);
     
-    // Register cleanup
     atexit(cleanup_resources);
 
-    // Clear screen and show banner
-    printf("\x1b[2J\x1b[H");  // Clear screen and move cursor to home
+    printf("\x1b[2J\x1b[H");
     printf("%s", BANNER);
-    fflush(stdout);  // Ensure banner is displayed
+    fflush(stdout);
     
-    // Check root privileges
     if (!check_root_privileges()) {
         print_modern_box("ROOT PRIVILEGES REQUIRED", FG_RED, SYMBOL_LOCK);
         return 1;
     }
 
-    // Get user confirmation with proper input handling
+    if (!check_system_requirements()) {
+        print_modern_box("SYSTEM REQUIREMENTS NOT MET", FG_RED, SYMBOL_ERROR);
+        return 1;
+    }
+
     print_modern_box("System Modification Warning", FG_YELLOW, SYMBOL_WARNING);
     printf("%sType %sAGREE%s to continue or %sDISAGREE%s to cancel: %s", 
            FG_WHITE, FG_GREEN, FG_WHITE, FG_RED, FG_WHITE, RESET);
     fflush(stdout);
 
-    // Read user input with timeout
     char response[10] = {0};
-    alarm(30);  // 30 second timeout
+    alarm(30);
     if (fgets(response, sizeof(response), stdin) == NULL) {
         status_message("Input timeout or error", "error");
         return 1;
@@ -669,7 +851,6 @@ int main(void) {
         return 1;
     }
 
-    // Main installation process
     if (!generate_tool_list()) {
         status_message("Failed to generate tool list", "error");
         return 1;
@@ -677,11 +858,8 @@ int main(void) {
 
     install_tools();
 
-    // Cleanup and exit
     status_message("Cleaning up...", "info");
     cleanup_resources();
-    
-    // Restore terminal
     disable_raw_mode();
     
     return 0;
