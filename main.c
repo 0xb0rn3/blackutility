@@ -16,7 +16,6 @@
 #include <fcntl.h>
 #include <ctype.h>
 #include <sys/stat.h> 
-
 // Modern Unicode symbols for improved visual feedback
 #define SYMBOL_SUCCESS "✓"
 #define SYMBOL_ERROR "✗"
@@ -134,7 +133,13 @@ void signal_handler(int signum);
 void get_terminal_width(int* width);
 void parse_package_info(const char* line, Package* pkg);
 void install_tools(void);
-
+void update_unified_loader(const char* current_package, int force_update);
+int create_lock_file(void);
+void release_lock_file(void);
+size_t get_available_disk_space(const char* path);
+int check_system_requirements(void);
+void alarm_handler(int signum);
+int install_package(const char* package_name, Package* pkg);
 
 typedef struct {
     int total_packages;
@@ -665,6 +670,7 @@ void install_tools(void) {
             g_progress.completed_packages, g_progress.total_packages);
     status_message(completion_msg, "info");
 }
+
 // Main program entry point
 int main(void) {
     // Initialization Phase
@@ -721,21 +727,23 @@ int main(void) {
         return 1;
     }
 
-    // Single system update
+    // System update
     status_message("Updating system packages...", "info");
     if (!execute_command("pacman -Syyu --noconfirm")) {
         status_message("System update failed", "error");
         return 1;
     }
 
-    // Install tools
+    // Install tools if system update succeeded
     if (keep_running) {
         install_tools();
     }
 
-    // Cleanup and Status
+    // Cleanup Phase
     status_message("Cleaning up...", "info");
+    cleanup_resources();
     
+    // Log completion status
     if (cleanup_needed) {
         log_message("Program terminated by user interrupt", "info");
         return 1;
