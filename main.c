@@ -157,6 +157,7 @@ void log_message(const char* message, const char* level);
 void cleanup_resources(void);
 void signal_handler(int signum);
 void show_smooth_progress(const char* package, float percentage);
+int execute_command(const char* command);
 
 /* Terminal Handling Functions */
 void disable_raw_mode() {
