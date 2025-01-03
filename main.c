@@ -80,17 +80,13 @@
 /* Program Banner */
 const char* BANNER = 
     "\n" FG_CYAN BOLD
-    "██████╗ ██╗      █████╗  ██████╗██╗  ██╗██╗   ██╗████████╗██╗██╗\n"
-    "██╔══██╗██║     ██╔══██╗██╔════╝██║ ██╔╝██║   ██║╚══██╔══╝██║██║\n"
-    "██████╔╝██║     ███████║██║     █████╔╝ ██║   ██║   ██║   ██║██║\n"
-    "██╔══██╗██║     ██╔══██║██║     ██╔═██╗ ██║   ██║   ██║   ██║██║\n"
-    "██████╔╝███████╗██║  ██║╚██████╗██║  ██╗╚██████╔╝   ██║   ██║███████╗\n"
-    "╚═════╝ ╚══════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝ ╚═════╝    ╚═╝   ╚═╝╚══════╝\n"
+    "╔╗ ╦  ╔═╗╔═╗╦╔═╦ ╦╔╦╗╦╦  ╦╔╦╗╦ ╦\n"
+    "╠╩╗║  ╠═╣║  ╠╩╗║ ║ ║ ║║  ║ ║ └┬┘\n"
+    "╚═╝╩═╝╩ ╩╚═╝╩ ╩╚═╝ ╩ ╩╩═╝╩ ╩  ┴ \n"
     RESET
-    FG_WHITE "           [ Advanced Security Arsenal for Arch Linux ]\n"
-    FG_CYAN "                      Version 0.3-ALFA\n" RESET
-    FG_BLUE "         " SYMBOL_ARROW " Developed & Maintained by @0xb0rn3\n" RESET
-    FG_MAGENTA "         " SYMBOL_LOCK " Stay Ethical. Stay Secure. Stay Vigilant.\n" RESET;
+    FG_WHITE "    [ Security Arsenal for Arch Linux ]\n"
+    FG_CYAN "           Version 0.3-ALFA\n" RESET
+    FG_BLUE "    " SYMBOL_ARROW " by @0xb0rn3\n" RESET;
 
 /* Global Variables */
 static struct termios orig_termios;
