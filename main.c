@@ -727,52 +727,13 @@ int main(void) {
         return 1;
     }
 
-    // System update
-    status_message("Updating system packages...", "info");
-    if (!execute_command("pacman -Syyu --noconfirm")) {
-        status_message("System update failed", "error");
-        return 1;
-    }
-
-    // Install tools if system update succeeded
-    if (keep_running) {
-        install_tools();
-    }
-
-    // Cleanup Phase
-    status_message("Cleaning up...", "info");
-    cleanup_resources();
-    
-    // Log completion status
-    if (cleanup_needed) {
-        log_message("Program terminated by user interrupt", "info");
-        return 1;
-    }
-    
-    log_message("Program completed successfully", "info");
-    return 0;
-}
-    // ====== Main Program Loop ======
-    
-while (keep_running) {
-    if (cleanup_needed) {
-        printf("\n%sReceived interrupt signal, cleaning up...%s\n", 
-               FG_YELLOW, RESET);
-        break;
-    }
-
-    // Generate tool list first
-    if (!generate_tool_list()) {
-        status_message("Failed to prepare tool list", "error");
-        break;
-    }
-
-    // Start with system update
-    status_message("Updating system packages...", "info");
-    if (!execute_command("pacman -Syyu --noconfirm")) {
-        status_message("System update failed", "error");
-        break;
-    }
+    // Handle the main program loop
+    while (keep_running) {
+        if (cleanup_needed) {
+            printf("\n%sReceived interrupt signal, cleaning up...%s\n", 
+                   FG_YELLOW, RESET);
+            break;
+        }
 
         // Start with system update
         status_message("Updating system packages...", "info");
@@ -803,10 +764,22 @@ while (keep_running) {
         }
 
         // Break the loop after completing installation
-        // This ensures we only run through once unless interrupted
         break;
     }
 
+    // Cleanup Phase
+    status_message("Cleaning up...", "info");
+    cleanup_resources();
+    
+    // Log completion status
+    if (cleanup_needed) {
+        log_message("Program terminated by user interrupt", "info");
+        return 1;
+    }
+    
+    log_message("Program completed successfully", "info");
+    return 0;
+}
     // ====== Cleanup Phase ======
     
     // Perform cleanup operations
