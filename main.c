@@ -87,6 +87,7 @@ const char* BANNER =
     FG_WHITE "    [ Security Arsenal for Arch Linux ]\n"
     FG_CYAN "           Version 0.3-ALFA\n" RESET
     FG_BLUE "    " SYMBOL_ARROW " by @0xb0rn3\n" RESET;
+    FG_BLUE "    " SYMBOL_ARROW " Contact: 0xb0rn3@proton.me\n" RESET;
 
 /* Global Variables */
 static struct termios orig_termios;
