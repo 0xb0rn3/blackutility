@@ -1,13 +1,3 @@
-/**
- * BlackUtility - Advanced Security Arsenal for Arch Linux
- * Version: 0.3-ALFA
- * Author: @0xb0rn3
- * 
- * This utility facilitates the installation and management of BlackArch tools
- * on Arch Linux systems. It provides a user-friendly interface with progress
- * tracking, error handling, and system requirement verification.
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
